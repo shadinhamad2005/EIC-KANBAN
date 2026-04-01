@@ -30,6 +30,7 @@
     </div>
     <div style="display: flex; align-items: center; gap: 10px;">
       <span id="user-email" style="font-size: 0.9rem; margin-right: 15px;"></span>
+      <button id="new-ticket-btn" class="btn-primary" style="display: none; padding: 8px 16px; font-size: 0.85rem;">➕ New Ticket</button>
       <button id="settings-btn" class="icon-btn" style="display: none;" title="Board Settings">⚙️ Settings</button>
       <button id="analytics-btn" class="icon-btn" style="display: none;" title="Analytics Dashboard">📊 Insights</button>
       <button id="history-btn" class="icon-btn" style="display: none;" title="Archive History">🗄️ History</button>
@@ -212,6 +213,22 @@
       </div>
     </div>
   </div>
+  <!-- NEW TICKET MODAL -->
+  <div id="new-ticket-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-panel" style="max-width: 550px; width: 90%;">
+      <div class="modal-header">
+        <h2>➕ Create New Ticket</h2>
+        <button class="close-btn" id="close-new-ticket-btn">&times;</button>
+      </div>
+      <div class="modal-body" id="new-ticket-form-body">
+        <!-- Fields injected by JS -->
+      </div>
+      <div class="modal-footer" style="justify-content: flex-end;">
+        <button id="submit-new-ticket-btn" class="btn-primary" style="width: auto; padding: 12px 28px;">Create Ticket</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="app.js"></script>
 </body>
 </html>
