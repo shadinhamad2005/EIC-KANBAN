@@ -565,9 +565,25 @@ function openCardModal(cardId) {
     };
 
     document.getElementById('action-whatsapp-btn').onclick = () => {
-        let phone = card.formData?.f_phone;
-        if(!phone) for(let key in card.formData) if(key.toLowerCase().includes('phone')||key.toLowerCase().includes('whatsapp')) { phone=card.formData[key]; break; }
-        if(!phone) return alert("No phone found.");
+        let phone = card.formData?.f_phone; // Check default field ID first
+
+        if (!phone && card.formData) {
+            // Scan all fields — check BOTH the key name AND the configured label
+            for (const key in card.formData) {
+                const keyLower = key.toLowerCase();
+                const configField = currentFormFields.find(f => f.id === key);
+                const labelLower = (configField?.label || '').toLowerCase();
+                
+                if (keyLower.includes('phone') || keyLower.includes('whatsapp') ||
+                    labelLower.includes('phone') || labelLower.includes('mobile') ||
+                    labelLower.includes('whatsapp') || labelLower.includes('contact')) {
+                    phone = card.formData[key];
+                    break;
+                }
+            }
+        }
+        
+        if (!phone) return alert("No phone number found on this ticket. Make sure there is a field with 'Phone' or 'Mobile' in its label.");
         logAction(cardId, `Initiated WhatsApp Update to ${phone}`);
         window.open(`https://wa.me/${phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent('Hello regarding ticket ' + card.ticketId)}`, '_blank');
     };
