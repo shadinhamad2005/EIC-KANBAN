@@ -304,6 +304,7 @@ function renderBuilderList() {
         newFieldParentSelect.innerHTML += `<option value="${field.id}">${field.label}</option>`;
         
         let metaHtml = `<small style="color:var(--accent-color);">(${field.type})</small>`;
+        if (field.required) metaHtml += ` <small style="color:var(--danger-color); font-weight:bold;">[Required]</small>`;
         if (field.options && field.options.length > 0) metaHtml += ` <br><small>Options: ${field.options.join(', ')}</small>`;
         if (field.condition && field.condition.dependsOn) {
             const parentField = currentFormFields.find(f => f.id === field.condition.dependsOn);
@@ -326,6 +327,8 @@ window.editField = function(id) {
     document.getElementById('new-field-label').value = field.label;
     document.getElementById('new-field-type').value = field.type;
     document.getElementById('new-field-options').value = (field.options || []).join(', ');
+    const reqCheckbox = document.getElementById('new-field-required');
+    if(reqCheckbox) reqCheckbox.checked = !!field.required;
     
     // Toggle options visibility manually
     newFieldOptionsInput.style.display = ['select', 'radio', 'checkbox'].includes(field.type) ? 'block' : 'none';
@@ -354,6 +357,8 @@ if (cancelEditBtn) {
         document.getElementById('new-field-condition-value').value = '';
         conditionEqualsText.style.display = 'none';
         conditionValueInput.style.display = 'none';
+        const reqCheckbox = document.getElementById('new-field-required');
+        if(reqCheckbox) reqCheckbox.checked = false;
         if (addFieldBtn) addFieldBtn.innerText = 'Add Field Structure';
         cancelEditBtn.style.display = 'none';
     });
@@ -367,6 +372,8 @@ if (addFieldBtn) {
         
         const conditionParent = document.getElementById('new-field-condition-parent').value;
         const conditionValue = document.getElementById('new-field-condition-value').value;
+        const reqCheckbox = document.getElementById('new-field-required');
+        const isRequired = reqCheckbox ? reqCheckbox.checked : false;
         
         if(!label) return;
         
@@ -385,13 +392,13 @@ if (addFieldBtn) {
             if(fieldIndex > -1) {
                 currentFormFields[fieldIndex] = {
                     ...currentFormFields[fieldIndex],
-                    label, type, options, condition
+                    label, type, options, condition, required: isRequired
                 };
             }
         } else {
             currentFormFields.push({ 
                 id: "f_" + Math.random().toString(36).substr(2, 5), 
-                label, type, required: false, options, condition
+                label, type, required: isRequired, options, condition
             });
         }
         
