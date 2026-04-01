@@ -5,7 +5,6 @@ import {
 import { 
   collection, onSnapshot, doc, updateDoc, setDoc, arrayUnion 
 } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
-import Sortable from "https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/modular/sortable.esm.js";
 
 // === Core DOM Elements ===
 const authOverlay = document.getElementById('auth-overlay');
@@ -243,7 +242,7 @@ function distributeCards() {
 globalSearch.addEventListener('input', distributeCards);
 
 // === Modals and Settings ===
-let qrCodeInstance = null;
+
 const newFieldTypeSelect = document.getElementById('new-field-type');
 const newFieldOptionsInput = document.getElementById('new-field-options');
 const newFieldParentSelect = document.getElementById('new-field-condition-parent');
@@ -283,10 +282,7 @@ settingsBtn.addEventListener('click', () => {
         });
     }
 
-    if (!qrCodeInstance) {
-        const portalUrl = window.location.href.replace(/index\.html$|\/$/, '') + (window.location.href.endsWith('/') ? '' : '/') + 'intake.html';
-        qrCodeInstance = new QRCode(document.getElementById("settings-qrcode"), { text: portalUrl, width: 128, height: 128, colorDark : "#0d1117", colorLight : "#ffffff" });
-    }
+
     settingsModal.style.display = 'flex';
 });
 
