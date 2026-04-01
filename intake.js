@@ -180,18 +180,29 @@ form.addEventListener('submit', async (e) => {
         const el = document.getElementById(field.id);
         if (!el) continue;
         
+        let hasValue = false;
+        
         if (field.type === 'file') {
             if (el.files && el.files.length > 0) {
                 fileToUpload = el.files[0]; fileFieldId = field.id;
+                hasValue = true;
             }
         } else if (field.type === 'radio') {
             const checked = el.querySelector(`input[type="radio"]:checked`);
-            if (checked) payload[field.id] = checked.value;
+            if (checked) { payload[field.id] = checked.value; hasValue = true; }
         } else if (field.type === 'checkbox') {
             const checkedBoxes = Array.from(el.querySelectorAll(`input[type="checkbox"]:checked`));
-            if (checkedBoxes.length > 0) payload[field.id] = checkedBoxes.map(cb => cb.value);
+            if (checkedBoxes.length > 0) { payload[field.id] = checkedBoxes.map(cb => cb.value); hasValue = true; }
         } else {
-            payload[field.id] = el.value.trim();
+            const val = el.value.trim();
+            if(val) { payload[field.id] = val; hasValue = true; }
+        }
+        
+        if (field.required && !hasValue) {
+            alert(`Please complete the required field: ${field.label.replace(' *', '')}`);
+            submitBtn.disabled = false;
+            submitBtn.innerText = 'Submit Request';
+            return;
         }
     }
 
