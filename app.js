@@ -608,6 +608,27 @@ EIC Helpdesk Team`
 
         if (!phone) return alert("No phone number found on this ticket. Make sure your form has a field with 'Phone' or 'Mobile' in its label.");
         
+        // === Smart UAE (+971) Phone Normalizer ===
+        // Strip everything except digits and leading +
+        let digitsOnly = phone.replace(/[^0-9]/g, '');
+
+        // Already has full UAE country code: 971XXXXXXXXX
+        if (digitsOnly.startsWith('971') && digitsOnly.length >= 11) {
+            // Good as-is
+        }
+        // Local UAE format starting with 0: 05XXXXXXXX → strip leading 0, add 971
+        else if (digitsOnly.startsWith('0') && digitsOnly.length === 10) {
+            digitsOnly = '971' + digitsOnly.slice(1);
+        }
+        // Just the local number without 0: 5XXXXXXXX (9 digits, UAE mobile starts with 5)
+        else if (digitsOnly.startsWith('5') && digitsOnly.length === 9) {
+            digitsOnly = '971' + digitsOnly;
+        }
+        // Anything else (e.g. landlines or numbers from other countries)
+        else if (!digitsOnly.startsWith('971')) {
+            digitsOnly = '971' + digitsOnly;
+        }
+        
         const draftMsg = 
 `Hello,
 
@@ -618,8 +639,8 @@ We will get back to you shortly with an update.
 Thank you,
 EIC Helpdesk Team`;
 
-        logAction(cardId, `Initiated WhatsApp Update to ${phone}`);
-        window.open(`https://wa.me/${phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(draftMsg)}`, '_blank');
+        logAction(cardId, `Initiated WhatsApp Update to +${digitsOnly}`);
+        window.open(`https://wa.me/${digitsOnly}?text=${encodeURIComponent(draftMsg)}`, '_blank');
     };
 
     cardModal.style.display = 'flex';
