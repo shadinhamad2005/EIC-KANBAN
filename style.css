@@ -62,6 +62,8 @@ header h1 {
 .btn-primary:hover { opacity: 0.85; }
 .btn-success { padding: 12px; background: var(--success-color); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; }
 .btn-success:hover { opacity: 0.85; }
+.btn-danger { padding: 12px; background: var(--danger-color); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; }
+.btn-danger:hover { opacity: 0.85; }
 .auth-error { color: var(--danger-color); font-size: 0.85rem; margin-bottom: 1rem; text-align: center; }
 
 /* KANBAN BOARD */
@@ -79,9 +81,43 @@ header h1 {
 .card-title { font-weight: 600; margin-bottom: 0.25rem; color: var(--accent-color); }
 .card-ticket { font-size: 0.7rem; background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; margin-bottom: 0.5rem; display: inline-block; }
 .card-desc { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sortable-ghost { opacity: 0.4; background: var(--accent-hover); }
-.card.sla-warning { border-left: 4px solid var(--warning-color); }
-.card.sla-danger { border-left: 4px solid var(--danger-color); }
+.modal-delete-btn {
+  background: transparent; border: none; color: var(--text-muted);
+  font-size: 1.1rem; cursor: pointer; transition: color 0.15s;
+  padding: 5px; display: flex; align-items: center; justify-content: center;
+  margin-right: 10px;
+}
+.modal-delete-btn:hover { color: var(--danger-color); transform: scale(1.1); }
+
+/* PRIORITY & URGENT FLAG */
+.card-prio-strip {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 10px;
+  border-top-left-radius: 8px; border-bottom-left-radius: 8px;
+  z-index: 1;
+}
+.card-content { padding-left: 12px; }
+.prio-urgent { background: #ff4444; box-shadow: 0 0 10px rgba(255, 68, 68, 0.4); }
+.prio-high { background: #ff8c00; }
+.prio-normal { background: #ffd700; }
+.prio-low { background: #00c851; }
+
+.urgent-badge {
+  position: absolute; top: 10px; right: 10px;
+  font-size: 1.2rem; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+  animation: pulse-urgent 2s infinite;
+  z-index: 5;
+}
+@keyframes pulse-urgent {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+.modal-prio-select {
+  background: rgba(255,255,255,0.05); border: 1px solid var(--border-color);
+  color: var(--text-primary); border-radius: 6px; padding: 4px 8px;
+  font-size: 0.85rem; cursor: pointer; margin-right: 10px;
+}
 
 /* MODALS */
 .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(5px); display: flex; justify-content: center; align-items: center; z-index: 2000; padding: 2rem;}
@@ -125,3 +161,48 @@ header h1 {
 .history-table th { background: rgba(255,255,255,0.05); padding: 1rem; font-weight: 600; font-size: 0.9rem; border-bottom: 1px solid var(--border-color); }
 .history-table td { padding: 1rem; font-size: 0.85rem; border-bottom: 1px solid rgba(255,255,255,0.05); }
 .history-table tr:hover { background: rgba(255,255,255,0.02); }
+
+/* BOARD SIDEBAR */
+#workspace-wrapper { display: flex; flex: 1; overflow: hidden; }
+
+#board-sidebar {
+  width: 56px; background: rgba(13, 17, 23, 0.9); border-right: 1px solid var(--border-color);
+  display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 6px;
+  transition: width 0.25s ease; overflow: hidden; z-index: 100; flex-shrink: 0;
+}
+#board-sidebar:hover, #board-sidebar.expanded {
+  width: 220px; align-items: flex-start;
+}
+.sidebar-label {
+  display: none; font-size: 0.8rem; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; max-width: 140px;
+}
+#board-sidebar:hover .sidebar-label,
+#board-sidebar.expanded .sidebar-label { display: block; }
+
+.sidebar-board-btn {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 16px;
+  background: transparent; border: none; color: var(--text-muted); cursor: pointer;
+  border-radius: 8px; transition: all 0.15s ease; font-family: 'Inter', sans-serif;
+  font-size: 0.875rem; text-align: left;
+}
+.sidebar-board-btn:hover { background: rgba(255,255,255,0.06); color: white; }
+.sidebar-board-btn.active { background: rgba(88, 166, 255, 0.15); color: var(--accent-color); border-left: 3px solid var(--accent-color); }
+.sidebar-board-btn .board-icon { font-size: 1.2rem; flex-shrink: 0; }
+.sidebar-divider { width: 80%; height: 1px; background: var(--border-color); margin: 6px auto; }
+
+/* BOARD TYPE CARDS in create modal */
+.board-type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 15px; }
+.board-type-card {
+  border: 2px solid var(--border-color); border-radius: 10px; padding: 16px;
+  cursor: pointer; transition: all 0.2s; background: rgba(0,0,0,0.2); text-align: left;
+}
+.board-type-card:hover { border-color: var(--accent-color); background: rgba(88,166,255,0.08); }
+.board-type-card.selected { border-color: var(--accent-color); background: rgba(88,166,255,0.15); }
+.board-type-card .btype-icon { font-size: 1.5rem; margin-bottom: 6px; }
+.board-type-card .btype-name { font-weight: 600; font-size: 0.9rem; margin-bottom: 4px; }
+.board-type-card .btype-desc { font-size: 0.78rem; color: var(--text-muted); }
+
+/* ADD INTERNAL CARD modal */
+#add-card-modal .modal-panel { max-width: 480px; }
+

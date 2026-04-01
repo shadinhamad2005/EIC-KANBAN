@@ -3,7 +3,7 @@ import {
   onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut
 } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
 import { 
-  collection, onSnapshot, doc, updateDoc, setDoc, arrayUnion, addDoc, runTransaction 
+  collection, onSnapshot, doc, updateDoc, setDoc, arrayUnion, addDoc, runTransaction, getDoc, getDocs, query, where, deleteDoc 
 } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
 
 // === Core DOM Elements ===
@@ -29,16 +29,22 @@ const cardModal = document.getElementById('card-modal');
 let isSignup = false;
 let unsubscribeCards = null;
 let unsubscribeSettings = null;
+let unsubscribeBoards = null;
+let activeBoardId = 'helpdesk';
+let allBoardsData = {};
 let currentBoardColumns = ['Incoming', 'In Progress', 'Done'];
+let currentBoardType = 'helpdesk';
 let currentFormFields = [
     { id: "f_title", label: "Task Title *", type: "text", required: true },
     { id: "f_email", label: "Contact Email", type: "email", required: true },
-    { id: "f_phone", label: "Phone Number", type: "text", required: false }
+    { id: "f_phone", label: "Phone Number", type: "text", required: false },
+    { id: "f_urgent", label: "Requires Urgent Attention (1-2 Hours)", type: "checkbox", options: ["Urgent"] }
 ];
 let allCardsData = {}; 
 let activeModalCardId = null;
 let chartInstance = null;
 let editingFieldId = null;
+let selectedBoardType = 'internal'; // for create-board modal
 
 // HTML5 Notifications
 let notificationsEnabled = false;
@@ -86,22 +92,126 @@ onAuthStateChanged(auth, (user) => {
         [settingsBtn, analyticsBtn, historyBtn, globalSearch, newTicketBtn, logoutBtn].forEach(el => el.style.display = 'none');
         if (unsubscribeCards) { unsubscribeCards(); unsubscribeCards = null; }
         if (unsubscribeSettings) { unsubscribeSettings(); unsubscribeSettings = null; }
+        if (unsubscribeBoards) { unsubscribeBoards(); unsubscribeBoards = null; }
         boardContainer.innerHTML = '';
+        document.getElementById('board-sidebar').innerHTML = '';
+        allBoardsData = {}; allCardsData = {};
     }
 });
 
 // === Workspace Initialization ===
-function initWorkspace() {
-    unsubscribeSettings = onSnapshot(doc(db, 'settings', 'config'), (snap) => {
-        if (snap.exists()) {
-            const data = snap.data();
-            if (data.boardTitle) boardTitleDisplay.innerText = data.boardTitle;
-            if (data.boardColumns) currentBoardColumns = data.boardColumns;
-            if (data.formFields) currentFormFields = data.formFields;
+async function initWorkspace() {
+    await seedDefaultBoards();
+    
+    // Auto-update Helpdesk if field is missing (Migrate existing board)
+    const helpdeskRef = doc(db, 'boards', 'helpdesk');
+    const snap = await getDoc(helpdeskRef);
+    if (snap.exists()) {
+        const data = snap.data();
+        const hasUrgent = (data.formFields || []).some(f => f.id === 'f_urgent');
+        if (!hasUrgent) {
+            const updatedFields = [...(data.formFields || []), { id: "f_urgent", label: "Requires Urgent Attention (1-2 Hours)", type: "checkbox", options: ["Urgent"] }];
+            await updateDoc(helpdeskRef, { formFields: updatedFields });
+            // Also sync config for intake.js
+            await updateDoc(doc(db, 'settings', 'config'), { formFields: updatedFields });
         }
-        renderBoardLayout();
-        if (!unsubscribeCards) initCardsListener();
+    }
+
+    initBoardsListener();
+}
+
+async function seedDefaultBoards() {
+    const helpdeskRef = doc(db, 'boards', 'helpdesk');
+    const maintenanceRef = doc(db, 'boards', 'maintenance');
+    const [hdSnap, mSnap] = await Promise.all([getDoc(helpdeskRef), getDoc(maintenanceRef)]);
+    
+    // Seed Helpdesk board and migrate settings/config into it
+    if (!hdSnap.exists()) {
+        const cfgSnap = await getDoc(doc(db, 'settings', 'config'));
+        const cfg = cfgSnap.exists() ? cfgSnap.data() : {};
+        await setDoc(helpdeskRef, {
+            name: cfg.boardTitle || 'EIC Helpdesk',
+            type: 'helpdesk',
+            icon: '🎫',
+            columns: cfg.boardColumns || ['Incoming', 'In Progress', 'On Hold', 'Done'],
+            formFields: cfg.formFields || currentFormFields,
+            createdAt: new Date().toISOString()
+        });
+    }
+    // Seed Maintenance board
+    if (!mSnap.exists()) {
+        await setDoc(maintenanceRef, {
+            name: 'Maintenance',
+            type: 'internal',
+            icon: '🔧',
+            columns: ['To Do', 'In Progress', 'Done'],
+            formFields: [],
+            createdAt: new Date().toISOString()
+        });
+    }
+}
+
+function initBoardsListener() {
+    unsubscribeBoards = onSnapshot(collection(db, 'boards'), (snap) => {
+        allBoardsData = {};
+        snap.forEach(d => { allBoardsData[d.id] = { id: d.id, ...d.data() }; });
+        renderSidebar();
+        // Always load the active board
+        switchBoard(activeBoardId, true);
     });
+}
+
+function renderSidebar() {
+    const sidebar = document.getElementById('board-sidebar');
+    sidebar.innerHTML = '';
+    Object.values(allBoardsData).forEach(board => {
+        const btn = document.createElement('button');
+        btn.className = 'sidebar-board-btn' + (board.id === activeBoardId ? ' active' : '');
+        btn.innerHTML = DOMPurify.sanitize(`<span class="board-icon">${board.icon || '📋'}</span><span class="sidebar-label">${board.name}</span>`);
+        btn.addEventListener('click', () => switchBoard(board.id));
+        sidebar.appendChild(btn);
+    });
+    // Divider + Add Board button
+    const divider = document.createElement('div');
+    divider.className = 'sidebar-divider';
+    const addBtn = document.createElement('button');
+    addBtn.className = 'sidebar-board-btn';
+    addBtn.innerHTML = `<span class="board-icon">➕</span><span class="sidebar-label">New Board</span>`;
+    addBtn.addEventListener('click', () => { closeAllModals(); document.getElementById('create-board-modal').style.display = 'flex'; });
+    sidebar.appendChild(divider);
+    sidebar.appendChild(addBtn);
+}
+
+function switchBoard(boardId, force = false) {
+    if (boardId === activeBoardId && !force) return;
+    activeBoardId = boardId;
+    const board = allBoardsData[boardId];
+    if (!board) return;
+
+    // Update state from board  
+    currentBoardColumns = board.columns || ['Incoming', 'In Progress', 'Done'];
+    currentBoardType = board.type || 'internal';
+    currentFormFields = board.formFields || [];
+    boardTitleDisplay.innerText = board.name;
+
+    // Show/hide Form Builder button in settings based on type
+    const formBuilderSection = document.querySelector('#settings-modal .modal-body > div:last-child');
+    if (formBuilderSection) formBuilderSection.style.display = currentBoardType === 'helpdesk' ? '' : 'none';
+
+    // Show/hide New Ticket vs Add Card button
+    if (currentBoardType === 'helpdesk') {
+        newTicketBtn.innerText = '📋 Log Ticket';
+    } else {
+        newTicketBtn.innerText = '➕ Add Card';
+    }
+
+    // Teardown old listener, rebuild layout, init new listener
+    if (unsubscribeCards) { unsubscribeCards(); unsubscribeCards = null; }
+    allCardsData = {};
+    renderBoardLayout();
+    initCardsListener();
+    renderSidebar();
+    closeAllModals();
 }
 
 function renderBoardLayout() {
@@ -151,27 +261,33 @@ function renderBoardLayout() {
 function initCardsListener() {
     unsubscribeCards = onSnapshot(collection(db, 'cards'), (snapshot) => {
         const oldDataKeys = Object.keys(allCardsData);
+
+        snapshot.docChanges().forEach(change => {
+            if (change.type === 'removed') delete allCardsData[change.doc.id];
+        });
+
         snapshot.forEach(docSnap => {
             const data = docSnap.data();
             const id = docSnap.id;
-            
-            // Push Notification for brand new Incoming docs
-            if(!oldDataKeys.length && notificationsEnabled && data.status === 'Incoming' && data.createdAt) {} // Skip initial load
-            else if(oldDataKeys.length > 0 && !allCardsData[id] && notificationsEnabled && data.status === 'Incoming') {
+
+            // Filter: only show cards for the active board
+            const cardBoard = data.boardId || 'helpdesk';
+            if (cardBoard !== activeBoardId) return;
+
+            // Push Notification for new Incoming (helpdesk only)
+            if (activeBoardId === 'helpdesk' && oldDataKeys.length > 0 && !allCardsData[id] && notificationsEnabled && data.status === 'Incoming') {
                 new Notification("New Ticket Received!", { body: `${data.ticketId}: ${data.title}` });
             }
 
-            // Client-Side Archival Sweep (30 Days check on Done cards)
-            if(data.status === 'Done' && data.completedAt) {
+            // Client-Side Archival Sweep (30 Days)
+            if (activeBoardId === 'helpdesk' && data.status === 'Done' && data.completedAt) {
                 const daysOld = (new Date() - new Date(data.completedAt)) / (1000 * 60 * 60 * 24);
                 if(daysOld > 30) {
-                    try {
-                        updateDoc(doc(db, 'cards', id), { 
-                            status: 'Archived', 
-                            archivedAt: new Date().toISOString() 
-                        });
-                    } catch(e) { console.error("Archive sweep failed", e); }
-                    return; // Let the next snapshot catch it
+                    (async () => {
+                        try { await updateDoc(doc(db, 'cards', id), { status: 'Archived', archivedAt: new Date().toISOString() }); }
+                        catch(e) { console.error("Archive sweep failed", e); }
+                    })();
+                    return;
                 }
             }
             
@@ -192,7 +308,16 @@ function distributeCards() {
     const searchQuery = globalSearch.value.toLowerCase();
     const grouped = {};
 
-    Object.values(allCardsData).forEach(card => {
+    // Priority Weights for sorting
+    const prioWeight = { 'Urgent': 4, 'High': 3, 'Normal': 2, 'Low': 1 };
+    const sortedCards = Object.values(allCardsData).sort((a, b) => {
+        const weightA = prioWeight[a.priority || 'Normal'] || 2;
+        const weightB = prioWeight[b.priority || 'Normal'] || 2;
+        if (weightA !== weightB) return weightB - weightA;
+        return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+
+    sortedCards.forEach(card => {
         if(card.status === 'Archived') return;
 
         // Search Filter
@@ -217,6 +342,24 @@ function distributeCards() {
             cardEl.className = 'card';
             cardEl.setAttribute('data-id', card.id);
             
+            const prio = card.priority || 'Normal';
+            const prioClass = `prio-${prio.toLowerCase()}`;
+            
+            // --- NEW: PRIORITY STRIP ---
+            const prioStrip = document.createElement('div');
+            prioStrip.className = `card-prio-strip ${prioClass}`;
+            cardEl.appendChild(prioStrip);
+
+            // Show 🚨 if customer flagged as urgent
+            const customerUrgent = card.isUrgentFlag || card.formData?.f_urgent?.includes('Urgent') || card.formData?.Urgent_Attention_Needed;
+            if (customerUrgent) {
+                const badge = document.createElement('div');
+                badge.className = 'urgent-badge';
+                badge.innerHTML = '🚨';
+                badge.title = 'Customer Flagged as Urgent (1-2hr)';
+                cardEl.appendChild(badge);
+            }
+
             let slaClass = '';
             if (status === 'In Progress' && card.startedAt) {
                 const hours = (new Date() - new Date(card.startedAt)) / (1000 * 60 * 60);
@@ -227,11 +370,15 @@ function distributeCards() {
 
             const displayTitle = card.title || card.formData?.f_title || "Untitled";
             
-            cardEl.innerHTML = `
+            // Re-render rest of content safely
+            const content = document.createElement('div');
+            content.className = 'card-content';
+            content.innerHTML = DOMPurify.sanitize(`
                 ${card.ticketId ? `<div class="card-ticket">${card.ticketId}</div>` : ''}
                 <div class="card-title">${displayTitle}</div>
                 <div class="card-desc">${card.requesterEmail || 'No email provided'}</div>
-            `;
+            `);
+            cardEl.appendChild(content);
             
             cardEl.addEventListener('click', () => openCardModal(card.id));
             if(listEl) listEl.appendChild(cardEl);
@@ -291,7 +438,13 @@ settingsBtn.addEventListener('click', () => {
 });
 
 function closeAllModals() {
-    [settingsModal, analyticsModal, historyModal, cardModal].forEach(m => {
+    const modals = [
+        settingsModal, analyticsModal, historyModal, cardModal,
+        document.getElementById('new-ticket-modal'),
+        document.getElementById('add-card-modal'),
+        document.getElementById('create-board-modal')
+    ];
+    modals.forEach(m => {
         if(m) m.style.display = 'none';
     });
 }
@@ -326,7 +479,7 @@ function renderBuilderList() {
             metaHtml += `<br><small style="color:var(--warning-color);">Condition: If '${parentName}' equals '${field.condition.value}'</small>`;
         }
         
-        list.innerHTML += `<div class="builder-item" data-id="${field.id}" style="cursor: grab;"><span><strong>☰ ${field.label}</strong> ${metaHtml}</span><div><button onclick="window.editField('${field.id}')" style="margin-right: 5px; background: transparent; border: 1px solid var(--border-color); color: var(--text-primary); padding: 4px 8px; border-radius: 4px; cursor: pointer;">Edit</button><button onclick="window.removeField('${field.id}')" style="background: transparent; border: 1px solid var(--danger-color); color: var(--danger-color); padding: 4px 8px; border-radius: 4px; cursor: pointer;">Remove</button></div></div>`;
+        list.innerHTML += DOMPurify.sanitize(`<div class="builder-item" data-id="${field.id}" style="cursor: grab;"><span><strong>☰ ${field.label}</strong> ${metaHtml}</span><div><button onclick="window.editField('${field.id}')" style="margin-right: 5px; background: transparent; border: 1px solid var(--border-color); color: var(--text-primary); padding: 4px 8px; border-radius: 4px; cursor: pointer;">Edit</button><button onclick="window.removeField('${field.id}')" style="background: transparent; border: 1px solid var(--danger-color); color: var(--danger-color); padding: 4px 8px; border-radius: 4px; cursor: pointer;">Remove</button></div></div>`);
     });
 }
 window.removeField = function(id) { 
@@ -425,10 +578,83 @@ document.getElementById('save-settings-btn').addEventListener('click', async () 
     const title = document.getElementById('settings-board-title').value;
     const cols = document.getElementById('settings-board-columns').value.split(',').map(s=>s.trim()).filter(s=>s);
     try {
-        await setDoc(doc(db, 'settings', 'config'), { boardTitle: title, boardColumns: cols, formFields: currentFormFields }, { merge: true });
+        // Save to the active board's document
+        await setDoc(doc(db, 'boards', activeBoardId), { name: title, columns: cols, formFields: currentFormFields }, { merge: true });
+        // Also keep settings/config in sync for the helpdesk board (intake portal reads from it)
+        if (activeBoardId === 'helpdesk') {
+            await setDoc(doc(db, 'settings', 'config'), { boardTitle: title, boardColumns: cols, formFields: currentFormFields }, { merge: true });
+        }
         settingsModal.style.display = 'none';
         alert("Configuration saved successfully.");
     } catch(err) { alert("Failed to save: " + err.message); }
+});
+
+document.getElementById('delete-board-btn').addEventListener('click', async () => {
+    // Safety check: Prevent deleting system boards
+    if (activeBoardId === 'helpdesk') {
+        return alert("The 'EIC Helpdesk' board is the system's primary workspace and cannot be deleted. You can rename it or change its columns, but the database requires it to remain active for the intake portal.");
+    }
+    if (activeBoardId === 'maintenance') {
+        return alert("The 'Maintenance' board is a core system-default board. If you don't need it, you can rename it for another purpose, but it cannot be deleted at this time.");
+    }
+
+    const board = allBoardsData[activeBoardId];
+    if (!board) return;
+
+    const confirmDelete = confirm(`⚠️ DANGER: Are you sure you want to delete the board "${board.name}" and ALL its cards?\n\nThis action cannot be undone.`);
+    
+    if (confirmDelete) {
+        try {
+            // --- CLEANUP: Delete all cards associated with this board ---
+            const cardsRef = collection(db, 'cards');
+            const q = query(cardsRef, where("boardId", "==", activeBoardId));
+            const cardsSnap = await getDocs(q);
+            const deletePromises = [];
+            cardsSnap.forEach(d => deletePromises.push(deleteDoc(doc(db, 'cards', d.id))));
+            await Promise.all(deletePromises);
+
+            await deleteDoc(doc(db, 'boards', activeBoardId));
+            settingsModal.style.display = 'none';
+            alert(`✅ Board "${board.name}" and its ${deletePromises.length} cards have been deleted.`);
+            switchBoard('helpdesk');
+        } catch (err) {
+            alert("Failed to delete board: " + err.message);
+        }
+    }
+});
+
+document.getElementById('delete-card-icon-btn').addEventListener('click', async () => {
+    if (!activeModalCardId) return;
+    const card = allCardsData[activeModalCardId];
+    if (!card) return;
+
+    const confirmDelete = confirm(`🗑️ Permanently delete card "${card.title || card.ticketId || 'this task'}"?\n\nThis action cannot be undone.`);
+    
+    if (confirmDelete) {
+        console.log(`[DELETION] Attempting to delete card: ${activeModalCardId} (${card.ticketId})`);
+        try {
+            await deleteDoc(doc(db, 'cards', activeModalCardId));
+            console.log(`[DELETION] Successfully deleted card: ${activeModalCardId}`);
+            cardModal.style.display = 'none';
+            activeModalCardId = null;
+            // No need to alert, the real-time listener will remove it from UI
+        } catch (err) {
+            console.error(`[DELETION] FAILED to delete card: ${activeModalCardId}`, err);
+            alert("Failed to delete card: " + err.message);
+        }
+    }
+});
+
+document.getElementById('modal-priority-select').addEventListener('change', async (e) => {
+    if (!activeModalCardId) return;
+    const newPrio = e.target.value;
+    try {
+        await updateDoc(doc(db, 'cards', activeModalCardId), { priority: newPrio });
+    } catch (err) {
+        alert("Failed to update priority: " + err.message);
+        // revert UI if failed
+        e.target.value = allCardsData[activeModalCardId]?.priority || 'Normal';
+    }
 });
 
 document.getElementById('export-csv-btn').addEventListener('click', () => {
@@ -488,6 +714,9 @@ function openCardModal(cardId) {
     const card = allCardsData[cardId];
     if(!card) return;
 
+    // Set priority selector
+    document.getElementById('modal-priority-select').value = card.priority || 'Normal';
+
     document.getElementById('modal-ticket-id').innerText = card.ticketId || "Helpdesk Ticket";
     const fieldsDiv = document.getElementById('modal-dynamic-fields');
     fieldsDiv.innerHTML = `<h3 style="margin-bottom: 15px; border-bottom:1px solid var(--border-color); padding-bottom:5px;">Submission Details</h3>`;
@@ -513,10 +742,10 @@ function openCardModal(cardId) {
             
             // Failsafe: if a string is insanely long but doesn't start with data:image, truncate it so it never lags the UI
             const displayVal = (typeof contentString === 'string' && contentString.length > 1000) ? '[Massive Data Payload Omitted]' : (contentString || '<em>Empty</em>');
-            fieldsDiv.innerHTML += `<div class="field-display"><label>${label}</label><div class="val" style="word-break: break-all;">${displayVal}</div></div>`;
+            fieldsDiv.innerHTML += DOMPurify.sanitize(`<div class="field-display"><label>${label}</label><div class="val" style="word-break: break-all;">${displayVal}</div></div>`);
         }
     } else fieldsDiv.innerHTML += `<p class="helper-text">No dynamic data</p>`;
-    fieldsDiv.innerHTML += `<div class="field-display" style="margin-top:20px;"><label>Status</label><div class="val" style="color:var(--accent-color); font-weight:600;">${card.status}</div></div>`;
+    fieldsDiv.innerHTML += DOMPurify.sanitize(`<div class="field-display" style="margin-top:20px;"><label>Status</label><div class="val" style="color:var(--accent-color); font-weight:600;">${card.status}</div></div>`);
 
     // Render Attachment
     const attZone = document.getElementById('modal-attachment-zone');
@@ -555,7 +784,7 @@ function openCardModal(cardId) {
         let isNote = log.type === 'note';
         let bgStyle = isNote ? 'background: rgba(88, 166, 255, 0.15); border-left: 3px solid var(--accent-color)' : '';
         let content = isNote ? marked.parse(log.action) : log.action;
-        timelineDiv.innerHTML += `<div class="timeline-event" style="${bgStyle}"><div class="meta">${new Date(log.timestamp).toLocaleString()} • ${log.user}</div><div class="${isNote ? 'markdown-body' : ''}">${content}</div></div>`;
+        timelineDiv.innerHTML += DOMPurify.sanitize(`<div class="timeline-event" style="${bgStyle}"><div class="meta">${new Date(log.timestamp).toLocaleString()} • ${log.user}</div><div class="${isNote ? 'markdown-body' : ''}">${content}</div></div>`);
     });
 
     document.getElementById('action-email-btn').onclick = () => {
@@ -704,95 +933,92 @@ historyBtn.addEventListener('click', () => {
     archived.forEach(card => {
         let daysToComplete = "-";
         if(card.startedAt && card.completedAt) daysToComplete = ((new Date(card.completedAt) - new Date(card.startedAt)) / 86400000).toFixed(1);
-        tbody.innerHTML += `<tr><td>${card.ticketId}</td><td>${card.title}</td><td>${card.requesterEmail}</td><td>${daysToComplete}</td><td>${new Date(card.archivedAt).toLocaleDateString()}</td></tr>`;
+        tbody.innerHTML += DOMPurify.sanitize(`<tr><td>${card.ticketId}</td><td>${card.title}</td><td>${card.requesterEmail}</td><td>${daysToComplete}</td><td>${new Date(card.archivedAt).toLocaleDateString()}</td></tr>`);
     });
     historyModal.style.display = 'flex';
 });
 document.getElementById('close-history-btn').addEventListener('click', () => historyModal.style.display = 'none');
 
-// === Manual New Ticket (Admin) ===
+// === Manual New Ticket / Add Card Manager ===
 const newTicketModal = document.getElementById('new-ticket-modal');
+const addCardModal = document.getElementById('add-card-modal');
 
 newTicketBtn.addEventListener('click', () => {
     closeAllModals();
-    // Render form fields dynamically from currentFormFields config
-    const formBody = document.getElementById('new-ticket-form-body');
-    formBody.innerHTML = '';
-    currentFormFields.forEach(field => {
-        let inputHTML = '';
-        const req = field.required ? 'required' : '';
-        if (field.type === 'textarea') {
-            inputHTML = `<textarea id="nt_${field.id}" rows="3" class="form-input" ${req}></textarea>`;
-        } else if (field.type === 'select') {
-            inputHTML = `<select id="nt_${field.id}" class="form-input" ${req}>
-                <option value="">Select an option...</option>
-                ${(field.options||[]).map(o=>`<option>${o}</option>`).join('')}
-            </select>`;
-        } else if (field.type === 'radio') {
-            inputHTML = `<div id="nt_${field.id}" style="display:flex;flex-direction:column;gap:6px;">
-                ${(field.options||[]).map(o=>`<label style="display:flex;align-items:center;gap:8px;"><input type="radio" name="nt_${field.id}" value="${o}" ${req}> ${o}</label>`).join('')}
-            </div>`;
-        } else if (field.type === 'checkbox') {
-            inputHTML = `<div id="nt_${field.id}" style="display:flex;flex-direction:column;gap:6px;">
-                ${(field.options||[]).map(o=>`<label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" name="nt_${field.id}" value="${o}"> ${o}</label>`).join('')}
-            </div>`;
-        } else {
-            const t = field.type === 'email' ? 'email' : 'text';
-            inputHTML = `<input type="${t}" id="nt_${field.id}" class="form-input" ${req}>`;
-        }
-        formBody.innerHTML += `
-            <div style="margin-bottom:15px;">
-                <label style="display:block;margin-bottom:6px;font-size:0.85rem;color:var(--text-muted);">
-                    ${field.label}${field.required ? ' <span style="color:var(--danger-color);">*</span>' : ''}
-                </label>
-                ${inputHTML}
-            </div>`;
-    });
-    // Column selector — so admin can place card directly into any column
-    formBody.innerHTML += `
-        <div style="margin-bottom:15px;">
-            <label style="display:block;margin-bottom:6px;font-size:0.85rem;color:var(--text-muted);">Place in Column</label>
-            <select id="nt_column" class="form-input">
-                ${currentBoardColumns.map(c=>`<option value="${c}">${c}</option>`).join('')}
-            </select>
-        </div>`;
-    newTicketModal.style.display = 'flex';
+    
+    // Route to different forms based on current board type
+    if (activeBoardId === 'helpdesk') {
+        const colSelect = document.getElementById('nt_column');
+        colSelect.innerHTML = currentBoardColumns.map(c => `<option value="${c}">${c}</option>`).join('');
+        ['nt_title','nt_name','nt_email','nt_phone','nt_unit','nt_notes'].forEach(id => {
+            const el = document.getElementById(id); if(el) el.value = '';
+        });
+        const isUrgentEl = document.getElementById('nt_urgent_flag');
+        if(isUrgentEl) isUrgentEl.checked = false;
+        newTicketModal.style.display = 'flex';
+    } else {
+        // Internal/Simple form for maintenance and other boards
+        const colSelect = document.getElementById('ac_column');
+        colSelect.innerHTML = currentBoardColumns.map(c => `<option value="${c}">${c}</option>`).join('');
+        document.getElementById('ac_title').value = '';
+        document.getElementById('ac_notes').value = '';
+        document.getElementById('ac_priority').value = 'Normal';
+        addCardModal.style.display = 'flex';
+    }
 });
 
 document.getElementById('close-new-ticket-btn').addEventListener('click', () => newTicketModal.style.display = 'none');
+document.getElementById('close-add-card-btn').addEventListener('click', () => addCardModal.style.display = 'none');
+
+// Logic for Internal Card Submission
+document.getElementById('submit-add-card-btn').addEventListener('click', async () => {
+    const title = document.getElementById('ac_title').value.trim();
+    const notes = document.getElementById('ac_notes').value.trim();
+    const column = document.getElementById('ac_column').value || currentBoardColumns[0];
+    const submitBtn = document.getElementById('submit-add-card-btn');
+
+    if (!title) return alert('Please enter a card title.');
+
+    submitBtn.disabled = true;
+    submitBtn.innerText = 'Adding...';
+
+    try {
+        const now = new Date().toISOString();
+        const priority = document.getElementById('ac_priority').value;
+        await addDoc(collection(db, 'cards'), {
+            boardId: activeBoardId,
+            title,
+            priority,
+            status: column,
+            createdAt: now,
+            formData: { Notes: notes },
+            activityLog: [{ action: `Note created in board: ${activeBoardId} with ${priority} priority`, timestamp: now, user: auth.currentUser?.email || 'Admin', type: 'system' }]
+        });
+        addCardModal.style.display = 'none';
+    } catch(err) {
+        alert('Failed to add card: ' + err.message);
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerText = '✅ Add Card';
+    }
+});
+
 
 document.getElementById('submit-new-ticket-btn').addEventListener('click', async () => {
     const submitBtn = document.getElementById('submit-new-ticket-btn');
-    const payload = {};
-    let valid = true;
+    const title    = document.getElementById('nt_title').value.trim();
+    const name     = document.getElementById('nt_name').value.trim();
+    const email    = document.getElementById('nt_email').value.trim();
+    const phone    = document.getElementById('nt_phone').value.trim();
+    const unit     = document.getElementById('nt_unit').value.trim();
+    const category = document.getElementById('nt_category').value;
+    const isUrgent = document.getElementById('nt_urgent_flag').checked;
+    const notes    = document.getElementById('nt_notes').value.trim();
+    const column   = document.getElementById('nt_column').value || currentBoardColumns[0];
 
-    for (const field of currentFormFields) {
-        const el = document.getElementById(`nt_${field.id}`);
-        if (!el) continue;
+    if (!title) return alert('Please enter a Task / Issue Title.');
 
-        if (el.tagName === 'DIV') {
-            // Radio
-            const checked = el.querySelector('input[type="radio"]:checked');
-            if (checked) payload[field.id] = checked.value;
-            // Checkbox
-            const boxes = Array.from(el.querySelectorAll('input[type="checkbox"]:checked'));
-            if (boxes.length) payload[field.id] = boxes.map(b => b.value);
-            if (field.required && !payload[field.id]) { valid = false; alert(`'${field.label}' is required.`); break; }
-        } else {
-            const val = el.value.trim();
-            if (field.required && !val) { valid = false; alert(`'${field.label}' is required.`); break; }
-            if (val) payload[field.id] = val;
-        }
-    }
-    if (!valid) return;
-
-    const targetColumn = document.getElementById('nt_column').value || currentBoardColumns[0];
-    const titleVal = payload['f_title'] || payload[currentFormFields[0]?.id] || 'Admin Ticket';
-    const emailVal = payload['f_email'] || auth.currentUser?.email || 'Admin';
-
-    submitBtn.disabled = true;
-    submitBtn.innerText = 'Creating...';
-
+    submitBtn.disabled = true; submitBtn.innerText = 'Creating...';
     try {
         const counterRef = doc(db, 'counters', 'tickets');
         const newNum = await runTransaction(db, async (tx) => {
@@ -802,26 +1028,79 @@ document.getElementById('submit-new-ticket-btn').addEventListener('click', async
             else tx.update(counterRef, { count: next });
             return next;
         });
-
         const ticketId = `EIC-TKT-${String(newNum).padStart(4, '0')}`;
         const now = new Date().toISOString();
-
         await addDoc(collection(db, 'cards'), {
-            ticketId,
-            title: titleVal,
-            requesterEmail: emailVal,
-            status: targetColumn,
-            createdAt: now,
-            formData: payload,
-            activityLog: [{ action: `Ticket manually created by ${auth.currentUser?.email}`, timestamp: now, user: auth.currentUser?.email || 'Admin', type: 'system' }]
+            boardId: activeBoardId, // Tag with the board ID!
+            ticketId, title,
+            requesterEmail: email || 'Admin Entry',
+            status: column, createdAt: now,
+            priority: 'Normal', // Defaults to Normal; Admin can change in modal
+            isUrgentFlag: isUrgent,
+            formData: { Contact_Name: name, Contact_Email: email, Contact_Phone: phone, Unit_Location: unit, Category: category, Urgent_Attention_Needed: isUrgent, Notes: notes },
+            activityLog: [{ action: `Ticket manually logged by ${auth.currentUser?.email}${isUrgent ? ' (URGENT FLAG CHECKED)' : ''}`, timestamp: now, user: auth.currentUser?.email || 'Admin', type: 'system' }]
+        });
+        newTicketModal.style.display = 'none';
+        alert(`✅ Ticket ${ticketId} created and placed in '${column}'!`);
+    } catch(err) { alert('Failed to create ticket: ' + err.message); }
+    finally { submitBtn.disabled = false; submitBtn.innerText = '🚀 Create Ticket'; }
+});
+
+// === Create Board Logic ===
+const createBoardModal = document.getElementById('create-board-modal');
+const boardTypeCards = document.querySelectorAll('.board-type-card');
+
+boardTypeCards.forEach(card => {
+    card.addEventListener('click', () => {
+        boardTypeCards.forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        selectedBoardType = card.dataset.type;
+        
+        // Auto-fill suggested columns based on type
+        const colInput = document.getElementById('cb_columns');
+        if (selectedBoardType === 'helpdesk') colInput.value = 'Incoming, In Progress, On Hold, Done';
+        else if (selectedBoardType === 'project') colInput.value = 'Backlog, In Progress, Quality Check, Done';
+        else colInput.value = 'To Do, In Progress, Done';
+    });
+});
+
+document.getElementById('close-create-board-btn').addEventListener('click', () => createBoardModal.style.display = 'none');
+
+document.getElementById('submit-create-board-btn').addEventListener('click', async () => {
+    const name = document.getElementById('cb_name').value.trim();
+    const cols = document.getElementById('cb_columns').value.split(',').map(s => s.trim()).filter(s => s);
+    const submitBtn = document.getElementById('submit-create-board-btn');
+
+    if (!name) return alert('Please enter a board name.');
+    if (cols.length === 0) return alert('Please enter at least one column.');
+
+    submitBtn.disabled = true;
+    submitBtn.innerText = 'Creating...';
+
+    try {
+        const boardId = name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Math.random().toString(36).substring(2, 6);
+        const icon = selectedBoardType === 'helpdesk' ? '🎫' : 
+                     selectedBoardType === 'project' ? '📁' : 
+                     selectedBoardType === 'internal' ? '🔧' : '⚙️';
+
+        await setDoc(doc(db, 'boards', boardId), {
+            name,
+            type: selectedBoardType,
+            icon,
+            columns: cols,
+            formFields: selectedBoardType === 'helpdesk' ? [{ id: "f_title", label: "Task Title *", type: "text", required: true }] : [],
+            createdAt: new Date().toISOString()
         });
 
-        newTicketModal.style.display = 'none';
-        alert(`✅ Ticket ${ticketId} created and placed in '${targetColumn}'!`);
+        createBoardModal.style.display = 'none';
+        alert(`✅ Board "${name}" created!`);
+        switchBoard(boardId);
     } catch(err) {
-        alert('Failed to create ticket: ' + err.message);
+        alert('Failed to create board: ' + err.message);
     } finally {
         submitBtn.disabled = false;
-        submitBtn.innerText = 'Create Ticket';
+        submitBtn.innerText = '🚀 Create Board';
     }
 });
+
+

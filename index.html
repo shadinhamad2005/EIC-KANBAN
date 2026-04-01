@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.9/purify.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
 <body>
@@ -38,7 +39,12 @@
     </div>
   </header>
 
-  <main class="board" id="board-container"></main>
+  <div id="workspace-wrapper">
+    <nav id="board-sidebar">
+      <!-- Populated by JS -->
+    </nav>
+    <main class="board" id="board-container"></main>
+  </div>
 
   <!-- SETTINGS MODAL -->
   <div id="settings-modal" class="modal-overlay" style="display: none;">
@@ -109,8 +115,9 @@
         </div>
 
       </div>
-      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
-        <button id="export-csv-btn" class="icon-btn" style="color: var(--accent-color); border-color: var(--accent-color);">📥 Export All Data (CSV/Excel)</button>
+      <div class="modal-footer" style="display: flex; gap: 1rem; align-items: center;">
+        <button id="export-csv-btn" class="icon-btn" style="color: var(--accent-color); border-color: var(--accent-color); margin-right: auto;">📥 Export Data</button>
+        <button id="delete-board-btn" class="btn-danger" style="width: auto; padding: 12px 24px;">🗑️ Delete Board</button>
         <button id="save-settings-btn" class="btn-success" style="width: auto; padding: 12px 24px;">Save Configuration</button>
       </div>
     </div>
@@ -177,7 +184,16 @@
     <div class="modal-panel card-panel">
       <div class="modal-header">
         <h2 id="modal-ticket-id">EIC-TKT-XXXX</h2>
-        <button class="close-btn" id="close-card-btn">&times;</button>
+        <div style="display: flex; align-items: center;">
+          <select id="modal-priority-select" class="modal-prio-select">
+            <option value="Normal">🟡 Normal</option>
+            <option value="Low">🟢 Low</option>
+            <option value="High">🟠 High</option>
+            <option value="Urgent">🔴 Urgent</option>
+          </select>
+          <button id="delete-card-icon-btn" class="modal-delete-btn" title="Delete Card">🗑️</button>
+          <button class="close-btn" id="close-card-btn">&times;</button>
+        </div>
       </div>
       <div class="modal-body" style="display: flex; gap: 2rem; align-items: stretch;">
         
@@ -213,18 +229,123 @@
       </div>
     </div>
   </div>
-  <!-- NEW TICKET MODAL -->
+  <!-- NEW TICKET MODAL (Admin Fixed Form) -->
   <div id="new-ticket-modal" class="modal-overlay" style="display: none;">
-    <div class="modal-panel" style="max-width: 550px; width: 90%;">
+    <div class="modal-panel" style="max-width: 580px; width: 95%;">
       <div class="modal-header">
-        <h2>➕ Create New Ticket</h2>
+        <h2>📋 Log New Ticket</h2>
         <button class="close-btn" id="close-new-ticket-btn">&times;</button>
       </div>
-      <div class="modal-body" id="new-ticket-form-body">
-        <!-- Fields injected by JS -->
+      <div class="modal-body">
+        <p class="helper-text" style="margin-bottom: 20px; font-size: 0.85rem;">Manually log a ticket for walk-in tenants, phone requests, or internal tasks.</p>
+        <label>Task / Issue Title <span style="color:var(--danger-color);">*</span></label>
+        <input type="text" id="nt_title" class="form-input" placeholder="e.g. AC not working in Flat 302">
+        <div style="display:flex; gap: 15px; margin-top: 15px;">
+          <div style="flex:1;"><label>Contact Name</label>
+            <input type="text" id="nt_name" class="form-input" placeholder="e.g. Ahmad Al Rashid"></div>
+          <div style="flex:1;"><label>Contact Email</label>
+            <input type="email" id="nt_email" class="form-input" placeholder="e.g. ahmad@email.com"></div>
+        </div>
+        <div style="display:flex; gap: 15px; margin-top: 15px;">
+          <div style="flex:1;"><label>Phone / WhatsApp</label>
+            <input type="text" id="nt_phone" class="form-input" placeholder="e.g. 0501234567"></div>
+          <div style="flex:1;"><label>Unit / Location</label>
+            <input type="text" id="nt_unit" class="form-input" placeholder="e.g. Flat 302, Block B"></div>
+        </div>
+        <div style="display:flex; gap: 15px; margin-top: 15px;">
+          <div style="flex:1;"><label>Category</label>
+            <select id="nt_category" class="form-input">
+              <option value="">— Select —</option>
+              <option>Maintenance</option><option>Cleaning</option>
+              <option>Security</option><option>IT / Connectivity</option>
+              <option>Billing / Finance</option><option>General Enquiry</option><option>Other</option>
+            </select></div>
+          <div style="flex:1; display: flex; align-items: flex-end; padding-bottom: 8px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-primary); font-weight: normal;">
+              <input type="checkbox" id="nt_urgent_flag" style="width: 18px; height: 18px;"> 
+              🚨 Urgent Attention (1-2 Hours)
+            </label>
+          </div>
+        </div>
+        <div style="margin-top: 15px;"><label>Additional Notes</label>
+          <textarea id="nt_notes" class="form-input" rows="3" placeholder="Any extra details..."></textarea></div>
+        <div style="margin-top: 15px;"><label>Place in Column <span style="color:var(--danger-color);">*</span></label>
+          <select id="nt_column" class="form-input"></select></div>
       </div>
       <div class="modal-footer" style="justify-content: flex-end;">
-        <button id="submit-new-ticket-btn" class="btn-primary" style="width: auto; padding: 12px 28px;">Create Ticket</button>
+        <button id="submit-new-ticket-btn" class="btn-primary" style="width: auto; padding: 12px 28px;">🚀 Create Ticket</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADD INTERNAL CARD MODAL -->
+  <div id="add-card-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-panel" style="max-width:460px;width:95%;">
+      <div class="modal-header">
+        <h2 id="add-card-modal-title">➕ Add Card</h2>
+        <button class="close-btn" id="close-add-card-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label>Title <span style="color:var(--danger-color);">*</span></label>
+        <input type="text" id="ac_title" class="form-input" placeholder="What needs to be done?">
+        <label style="margin-top:10px;">Notes / Details</label>
+        <textarea id="ac_notes" class="form-input" rows="3" placeholder="Any extra context..."></textarea>
+        <div style="display:flex; gap: 15px; margin-top: 15px;">
+          <div style="flex:1;"><label>Priority</label>
+            <select id="ac_priority" class="form-input">
+              <option value="Normal">🟡 Normal</option>
+              <option value="Low">🟢 Low</option>
+              <option value="High">🟠 High</option>
+              <option value="Urgent">🔴 Urgent</option>
+            </select></div>
+          <div style="flex:1;"><label>Column</label>
+            <select id="ac_column" class="form-input"></select></div>
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content:flex-end;">
+        <button id="submit-add-card-btn" class="btn-primary" style="width:auto;padding:12px 28px;">✅ Add Card</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CREATE BOARD MODAL -->
+  <div id="create-board-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-panel" style="max-width:520px;width:95%;">
+      <div class="modal-header">
+        <h2>🗂️ Create New Board</h2>
+        <button class="close-btn" id="close-create-board-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label>Board Name <span style="color:var(--danger-color);">*</span></label>
+        <input type="text" id="cb_name" class="form-input" placeholder="e.g. Property Maintenance">
+        <label style="margin-top:5px;">Board Type</label>
+        <div class="board-type-grid">
+          <div class="board-type-card selected" data-type="internal">
+            <div class="btype-icon">🔧</div>
+            <div class="btype-name">Internal Tasks</div>
+            <div class="btype-desc">Admin-only task board. Quick cards for reminders &amp; jobs.</div>
+          </div>
+          <div class="board-type-card" data-type="project">
+            <div class="btype-icon">📁</div>
+            <div class="btype-name">Project</div>
+            <div class="btype-desc">Track a long-running project with phases and tasks.</div>
+          </div>
+          <div class="board-type-card" data-type="helpdesk">
+            <div class="btype-icon">🎫</div>
+            <div class="btype-name">Helpdesk</div>
+            <div class="btype-desc">Links to a public intake portal for tenant tickets.</div>
+          </div>
+          <div class="board-type-card" data-type="custom">
+            <div class="btype-icon">⚙️</div>
+            <div class="btype-name">Custom</div>
+            <div class="btype-desc">Fully configurable. Define your own columns.</div>
+          </div>
+        </div>
+        <label style="margin-top:20px;">Columns (comma separated)</label>
+        <input type="text" id="cb_columns" class="form-input" placeholder="To Do, In Progress, Done">
+      </div>
+      <div class="modal-footer" style="justify-content:flex-end;">
+        <button id="submit-create-board-btn" class="btn-primary" style="width:auto;padding:12px 28px;">🚀 Create Board</button>
       </div>
     </div>
   </div>

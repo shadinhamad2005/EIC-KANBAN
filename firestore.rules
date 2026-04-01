@@ -2,25 +2,35 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
+    // Multi-Board Collection
+    match /boards/{boardId} {
+      allow read: if true;
+      // Protect default system boards from deletion but allow renaming/management
+      allow delete: if request.auth != null && boardId != 'helpdesk' && boardId != 'maintenance';
+      allow write: if request.auth != null;
+    }
+
     // Board Settings & Form Builder Mapping
     match /settings/config {
-      // Intake form needs to read the config to build the dynamic form
       allow read: if true;
       allow write: if request.auth != null;
     }
 
-    // Auto-Incrementing Ticket Counters
+    // Ticket Counters - Only allow +1 increments to prevent counter-exhaustion attacks
     match /counters/tickets {
-      // Both Intake Form and Board need to interact with the ticket counter transaction
-      allow read, update: if true;
+      allow read: if true;
+      allow update: if request.auth != null || 
+        (request.resource.data.count == resource.data.count + 1);
       allow create: if request.auth != null;
     }
 
     // The core Kanban Cards
     match /cards/{card} {
       allow read, update, delete: if request.auth != null;
-      // Allow public creation but ONLY for new Incoming cards
-      allow create: if request.auth != null || request.resource.data.status == 'Incoming';
+      allow create: if request.auth != null || (
+        request.resource.data.status == 'Incoming' &&
+        request.resource.data.keys().hasAll(['ticketId', 'title', 'status', 'createdAt'])
+      );
     }
   }
 }

@@ -71,7 +71,7 @@ function renderDynamicForm() {
         const wrap = document.createElement('div');
         wrap.id = `wrapper_${field.id}`;
         wrap.className = 'form-group-wrap';
-        wrap.innerHTML = labelHTML + inputHTML;
+        wrap.innerHTML = DOMPurify.sanitize(labelHTML + inputHTML);
         
         // Hide conditional fields initially
         if (field.condition && field.condition.dependsOn) {
