@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dynamic Kanban Workspace v4</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+
+  <!-- AUTHENTICATION OVERLAY -->
+  <div id="auth-overlay">
+    <div class="auth-panel">
+      <h2>Welcome Back</h2>
+      <div id="auth-error-msg" class="auth-error"></div>
+      <input type="email" id="email-input" placeholder="Email Address">
+      <input type="password" id="password-input" placeholder="Password">
+      <button id="login-btn" class="btn-primary">Log In</button>
+      <p style="text-align: center; margin-top: 15px; font-size: 0.8rem; color: var(--text-muted);">No account? <a href="#" id="signup-link" style="color: var(--accent-color);">Sign Up</a></p>
+    </div>
+  </div>
+
+  <header>
+    <div style="display:flex; align-items:center; gap: 20px;">
+        <h1 id="board-title-display">EIC Helpdesk</h1>
+        <input type="text" id="global-search" placeholder="🔍 Search ticket ID or keyword..." class="header-search" style="display:none;">
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <span id="user-email" style="font-size: 0.9rem; margin-right: 15px;"></span>
+      <button id="history-btn" class="icon-btn" style="display: none;" title="Archive History">🗄️ History</button>
+      <button id="analytics-btn" class="icon-btn" style="display: none;" title="Analytics Dashboard">📊 Insights</button>
+      <button id="settings-btn" class="icon-btn" style="display: none;" title="Board Settings">⚙️ Settings</button>
+      <button id="logout-btn" class="icon-btn" style="display: none;">Log Out</button>
+    </div>
+  </header>
+
+  <main class="board" id="board-container"></main>
+
+  <!-- SETTINGS MODAL -->
+  <div id="settings-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-panel settings-panel">
+      <div class="modal-header">
+        <h2>Board Settings & Form Builder ⚙️</h2>
+        <button class="close-btn" id="close-settings-btn">&times;</button>
+      </div>
+      <div class="modal-body" style="display: flex; gap: 2rem;">
+        
+        <div style="flex: 1;">
+          <h3>Board Layout</h3>
+          <p class="helper-text">Configure your Kanban columns</p>
+          <label>Platform Name / Heading</label>
+          <input type="text" id="settings-board-title" class="form-input">
+          
+          <label style="margin-top: 15px;">Columns List (Comma Separated)</label>
+          <input type="text" id="settings-board-columns" class="form-input" placeholder="Incoming, In Progress, On Hold, Done">
+          <p class="helper-text" style="font-size: 0.75rem;">Changes take effect immediately.</p>
+          
+          <h3 style="margin-top: 25px;">Portal QR Code</h3>
+          <p class="helper-text">Share your public intake portal.</p>
+          <div id="settings-qrcode" style="background: white; padding: 10px; display: inline-block; border-radius: 8px;"></div>
+        </div>
+
+        <div style="flex: 1.5;">
+          <h3>Intake Form Builder</h3>
+          <p class="helper-text">Add dynamic fields and conditional logic to your public portal.</p>
+          <div id="builder-fields-list" class="builder-list" style="max-height: 250px; overflow-y: auto;"></div>
+          
+          <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color); margin-top: 15px;">
+              <h4 style="margin-bottom: 15px; color: var(--accent-color);">Build New Field</h4>
+              <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                  <input type="text" id="new-field-label" class="form-input" placeholder="Label (e.g. Category)" style="flex: 1; min-width: 200px; margin-bottom: 5px;">
+                  <select id="new-field-type" class="form-input" style="width: 160px; margin-bottom: 5px;">
+                      <option value="text">Short Text</option>
+                      <option value="textarea">Paragraph</option>
+                      <option value="email">Email</option>
+                      <option value="file">File/Image</option>
+                      <option value="select">Dropdown</option>
+                      <option value="radio">Single Choice</option>
+                      <option value="checkbox">Multiple Choice</option>
+                  </select>
+              </div>
+              
+              <!-- Conditional & Advanced Options -->
+              <input type="text" id="new-field-options" class="form-input" placeholder="Options (comma separated, e.g. IT, HR, Maintenance)" style="display: none; margin-top: 10px; margin-bottom:0;">
+              
+              <div style="display: flex; gap: 10px; align-items: center; margin-top: 15px;">
+                  <label style="font-size: 0.75rem; color: var(--text-muted); white-space: nowrap;">Show field ONLY IF:</label>
+                  <select id="new-field-condition-parent" class="form-input" style="flex: 1; margin-bottom: 0; padding: 8px; font-size: 0.85rem;">
+                      <option value="">Always Show (No Condition)</option>
+                  </select>
+                  <span id="condition-equals-text" style="color: var(--text-muted); font-size: 0.75rem; display: none;">equals</span>
+                  <input type="text" id="new-field-condition-value" class="form-input" placeholder="Expected Value" style="flex: 1; margin-bottom: 0; padding: 8px; font-size: 0.85rem; display: none;">
+              </div>
+              <button id="add-field-btn" class="btn-primary" style="margin-top: 15px;">Add Field Structure</button>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+        <button id="export-csv-btn" class="icon-btn" style="color: var(--accent-color); border-color: var(--accent-color);">📥 Export All Data (CSV/Excel)</button>
+        <button id="save-settings-btn" class="btn-success" style="width: auto; padding: 12px 24px;">Save Configuration</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- INSIGHTS / ANALYTICS MODAL -->
+  <div id="analytics-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-panel analytics-panel">
+      <div class="modal-header">
+        <h2>Productivity Dashboard 📊</h2>
+        <button class="close-btn" id="close-analytics-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="display: flex; gap: 2rem; margin-bottom: 2rem;">
+            <div class="stat-box">
+                <h3 id="stat-total">0</h3>
+                <p>Total Active Tickets</p>
+            </div>
+            <div class="stat-box">
+                <h3 id="stat-sla" style="color: var(--danger-color)">0</h3>
+                <p>SLA Breaches (>48h)</p>
+            </div>
+            <div class="stat-box">
+                <h3 id="stat-avg">0h</h3>
+                <p>Avg Time to Resolve</p>
+            </div>
+        </div>
+        <div style="height: 300px; width: 100%; display: flex; justify-content: center;">
+            <canvas id="metricsChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HISTORY OF WORKS MODAL -->
+  <div id="history-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-panel history-panel" style="max-width: 1000px;">
+      <div class="modal-header">
+        <h2>History of Works 🗄️</h2>
+        <button class="close-btn" id="close-history-btn">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 0;">
+        <p class="helper-text" style="padding: 1.5rem 1.5rem 0.5rem;">Showing tickets automatically archived after 30 days of completion.</p>
+        <table class="history-table">
+            <thead>
+                <tr>
+                    <th>Ticket ID</th>
+                    <th>Title</th>
+                    <th>Requester</th>
+                    <th>Days to Complete</th>
+                    <th>Archived On</th>
+                </tr>
+            </thead>
+            <tbody id="history-table-body">
+                <!-- Injected via JS -->
+            </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- CARD DETAILS MODAL -->
+  <div id="card-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-panel card-panel">
+      <div class="modal-header">
+        <h2 id="modal-ticket-id">EIC-TKT-XXXX</h2>
+        <button class="close-btn" id="close-card-btn">&times;</button>
+      </div>
+      <div class="modal-body" style="display: flex; gap: 2rem; align-items: stretch;">
+        
+        <div class="card-left-pane">
+          <div id="modal-dynamic-fields">
+             <!-- Fields injected safely here -->
+          </div>
+          
+          <div id="modal-attachment-zone" style="margin-top: 15px; display: none;">
+            <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 5px;">Attached File</label>
+            <a id="modal-attachment-link" href="#" target="_blank" style="display:block; border-radius:8px; overflow:hidden; border: 1px solid var(--border-color);">
+                <img id="modal-attachment-img" src="" style="width: 100%; display: none; object-fit: cover;">
+                <div id="modal-attachment-text" style="padding: 10px; background: rgba(0,0,0,0.2); text-align:center; color: var(--accent-color);">Download File</div>
+            </a>
+          </div>
+
+          <h3 style="margin-top: 25px; border-bottom: 1px solid var(--border-color); padding-bottom: 5px;">Communication Actions</h3>
+          <div style="display: flex; gap: 10px; margin-top: 15px;">
+            <button id="action-email-btn" class="btn-primary" style="flex: 1;">✉ Acknowledge via Email</button>
+            <button id="action-whatsapp-btn" class="btn-success" style="flex: 1; background: #25D366; color: white;">💬 WhatsApp</button>
+          </div>
+        </div>
+
+        <div class="card-right-pane timeline-container">
+          <h3>Activity Timeline (Markdown Supported)</h3>
+          <div id="modal-timeline" class="timeline-scroll-area"></div>
+          <div class="timeline-input-area">
+            <textarea id="note-input" placeholder="Type a new internal note... (Markdown **bold**, *italic* allowed)" rows="3"></textarea>
+            <button id="add-note-btn" class="btn-primary">Save Note</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

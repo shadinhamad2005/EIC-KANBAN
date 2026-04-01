@@ -1,0 +1,12 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /attachments/{imageId} {
+      // Authenticated admins reading from the Kanban board can view the attachments
+      allow read: if request.auth != null;
+      
+      // The public intake portal needs to upload the compressed JPG files
+      allow write: if true;
+    }
+  }
+}
