@@ -556,36 +556,70 @@ function openCardModal(cardId) {
     });
 
     document.getElementById('action-email-btn').onclick = () => {
-        const recipient = card.requesterEmail || card.formData?.f_email;
-        if(!recipient || recipient==="Unknown") return alert("No email available.");
-        const subject = encodeURIComponent(`Re: Your Request [${card.ticketId || 'Updates'}]`);
-        const body = encodeURIComponent(`Hello,\n\nWe have received ticket (${card.ticketId}) and are processing it.\n\nThank you.`);
+        let recipient = card.requesterEmail;
+
+        // Fallback: scan form fields by ID or label for an email address
+        if (!recipient || recipient === 'Unknown') {
+            recipient = card.formData?.f_email;
+        }
+        if (!recipient || recipient === 'Unknown') {
+            for (const key in (card.formData || {})) {
+                const configField = currentFormFields.find(f => f.id === key);
+                const labelLower = (configField?.label || '').toLowerCase();
+                if (labelLower.includes('email') || labelLower.includes('e-mail') || key.toLowerCase().includes('email')) {
+                    recipient = card.formData[key]; break;
+                }
+            }
+        }
+
+        if (!recipient || recipient === 'Unknown') return alert("No email address found on this ticket.");
+        const subject = encodeURIComponent(`Re: Your Request [${card.ticketId || 'Ticket'}]`);
+        const body = encodeURIComponent(
+`Dear Requester,
+
+Thank you for reaching out to us.
+
+We have received your support ticket (${card.ticketId}) and our team is currently reviewing your request. We will keep you updated on the progress.
+
+If you have any additional information to share, please do not hesitate to reply.
+
+Best regards,
+EIC Helpdesk Team`
+        );
         logAction(cardId, `Sent Email Acknowledgment to ${recipient}`);
         window.location.href = `mailto:${recipient}?subject=${subject}&body=${body}`;
     };
 
     document.getElementById('action-whatsapp-btn').onclick = () => {
-        let phone = card.formData?.f_phone; // Check default field ID first
+        let phone = card.formData?.f_phone;
 
         if (!phone && card.formData) {
-            // Scan all fields — check BOTH the key name AND the configured label
             for (const key in card.formData) {
-                const keyLower = key.toLowerCase();
                 const configField = currentFormFields.find(f => f.id === key);
                 const labelLower = (configField?.label || '').toLowerCase();
-                
+                const keyLower = key.toLowerCase();
                 if (keyLower.includes('phone') || keyLower.includes('whatsapp') ||
                     labelLower.includes('phone') || labelLower.includes('mobile') ||
                     labelLower.includes('whatsapp') || labelLower.includes('contact')) {
-                    phone = card.formData[key];
-                    break;
+                    phone = card.formData[key]; break;
                 }
             }
         }
+
+        if (!phone) return alert("No phone number found on this ticket. Make sure your form has a field with 'Phone' or 'Mobile' in its label.");
         
-        if (!phone) return alert("No phone number found on this ticket. Make sure there is a field with 'Phone' or 'Mobile' in its label.");
+        const draftMsg = 
+`Hello,
+
+We have received your support request (${card.ticketId}) and our team is currently working on it.
+
+We will get back to you shortly with an update.
+
+Thank you,
+EIC Helpdesk Team`;
+
         logAction(cardId, `Initiated WhatsApp Update to ${phone}`);
-        window.open(`https://wa.me/${phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent('Hello regarding ticket ' + card.ticketId)}`, '_blank');
+        window.open(`https://wa.me/${phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(draftMsg)}`, '_blank');
     };
 
     cardModal.style.display = 'flex';
