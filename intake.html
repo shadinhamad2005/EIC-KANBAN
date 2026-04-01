@@ -4,41 +4,37 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Helpdesk Intake Portal</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="intake-style.css">
 </head>
 <body>
 
-  <header>
-    <h1 id="portal-title">Helpdesk Portal</h1>
-    <div>Submit a New Request</div>
-  </header>
+  <div class="intake-container">
+    <header>
+      <h1 id="portal-title">Helpdesk Portal</h1>
+      <div>Submit a New Request</div>
+    </header>
 
-  <main style="overflow-y: auto; display:block;">
-    <div class="intake-container">
-      <h2 style="margin-bottom: 20px;">Open a New Ticket</h2>
-      
-      <div id="success-msg" style="display:none; color: var(--success-color); padding: 15px; margin-bottom: 15px; background: rgba(46, 160, 67, 0.1); border-radius: 8px;">
-        <strong id="success-ticket-id"></strong> submitted successfully!
-      </div>
-
-      <form id="intake-form">
-        <div id="dynamic-form-container">
-          <!-- Fields will be injected here via intake.js -->
-        </div>
-
-        <button type="submit" id="submit-btn" class="btn-primary" style="margin-top: 15px; padding: 15px; font-size: 1.1rem;">
-          Submit Request
-        </button>
-      </form>
-
-      <div class="qr-code-section">
-        <p style="margin-bottom: 15px; font-size: 0.9rem; color: var(--text-muted);">
-          Scan QR Code to access form via mobile:
-        </p>
-        <div id="qrcode"></div>
-      </div>
+    <div id="success-msg" style="display:none; color: var(--success-color); padding: 15px; margin-bottom: 25px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 12px; text-align: center;">
+      <strong id="success-ticket-id"></strong> submitted successfully!
     </div>
-  </main>
+
+    <form id="intake-form">
+      <div id="dynamic-form-container">
+        <!-- Fields will be injected here via intake.js -->
+      </div>
+
+      <button type="submit" id="submit-btn" class="btn-primary">
+        Submit Request
+      </button>
+    </form>
+
+    <div class="qr-code-section">
+      <p style="margin-bottom: 15px; font-size: 0.85rem; color: var(--text-muted);">
+        Scan QR Code to access form via mobile
+      </p>
+      <div id="qrcode"></div>
+    </div>
+  </div>
 
   <script type="module" src="intake.js"></script>
 </body>
