@@ -3,7 +3,7 @@ import {
   onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut
 } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
 import { 
-  collection, onSnapshot, doc, updateDoc, setDoc, arrayUnion 
+  collection, onSnapshot, doc, updateDoc, setDoc, arrayUnion, addDoc, runTransaction 
 } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
 
 // === Core DOM Elements ===
@@ -13,6 +13,7 @@ const logoutBtn = document.getElementById('logout-btn');
 const settingsBtn = document.getElementById('settings-btn');
 const analyticsBtn = document.getElementById('analytics-btn');
 const historyBtn = document.getElementById('history-btn');
+const newTicketBtn = document.getElementById('new-ticket-btn');
 const userEmailDisplay = document.getElementById('user-email');
 const boardContainer = document.getElementById('board-container');
 const boardTitleDisplay = document.getElementById('board-title-display');
@@ -74,15 +75,17 @@ onAuthStateChanged(auth, (user) => {
         settingsBtn.style.display = 'inline-block';
         analyticsBtn.style.display = 'inline-block';
         historyBtn.style.display = 'inline-block';
+        newTicketBtn.style.display = 'inline-block';
+        logoutBtn.style.display = 'inline-block';
         globalSearch.style.display = 'inline-block';
         initWorkspace();
     } else {
         authOverlay.style.display = 'flex';
         setTimeout(() => authOverlay.style.opacity = '1', 10);
         userEmailDisplay.innerText = '';
-        [settingsBtn, analyticsBtn, historyBtn, globalSearch].forEach(el => el.style.display = 'none');
-        if (unsubscribeCards) unsubscribeCards();
-        if (unsubscribeSettings) unsubscribeSettings();
+        [settingsBtn, analyticsBtn, historyBtn, globalSearch, newTicketBtn, logoutBtn].forEach(el => el.style.display = 'none');
+        if (unsubscribeCards) { unsubscribeCards(); unsubscribeCards = null; }
+        if (unsubscribeSettings) { unsubscribeSettings(); unsubscribeSettings = null; }
         boardContainer.innerHTML = '';
     }
 });
@@ -706,3 +709,119 @@ historyBtn.addEventListener('click', () => {
     historyModal.style.display = 'flex';
 });
 document.getElementById('close-history-btn').addEventListener('click', () => historyModal.style.display = 'none');
+
+// === Manual New Ticket (Admin) ===
+const newTicketModal = document.getElementById('new-ticket-modal');
+
+newTicketBtn.addEventListener('click', () => {
+    closeAllModals();
+    // Render form fields dynamically from currentFormFields config
+    const formBody = document.getElementById('new-ticket-form-body');
+    formBody.innerHTML = '';
+    currentFormFields.forEach(field => {
+        let inputHTML = '';
+        const req = field.required ? 'required' : '';
+        if (field.type === 'textarea') {
+            inputHTML = `<textarea id="nt_${field.id}" rows="3" class="form-input" ${req}></textarea>`;
+        } else if (field.type === 'select') {
+            inputHTML = `<select id="nt_${field.id}" class="form-input" ${req}>
+                <option value="">Select an option...</option>
+                ${(field.options||[]).map(o=>`<option>${o}</option>`).join('')}
+            </select>`;
+        } else if (field.type === 'radio') {
+            inputHTML = `<div id="nt_${field.id}" style="display:flex;flex-direction:column;gap:6px;">
+                ${(field.options||[]).map(o=>`<label style="display:flex;align-items:center;gap:8px;"><input type="radio" name="nt_${field.id}" value="${o}" ${req}> ${o}</label>`).join('')}
+            </div>`;
+        } else if (field.type === 'checkbox') {
+            inputHTML = `<div id="nt_${field.id}" style="display:flex;flex-direction:column;gap:6px;">
+                ${(field.options||[]).map(o=>`<label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" name="nt_${field.id}" value="${o}"> ${o}</label>`).join('')}
+            </div>`;
+        } else {
+            const t = field.type === 'email' ? 'email' : 'text';
+            inputHTML = `<input type="${t}" id="nt_${field.id}" class="form-input" ${req}>`;
+        }
+        formBody.innerHTML += `
+            <div style="margin-bottom:15px;">
+                <label style="display:block;margin-bottom:6px;font-size:0.85rem;color:var(--text-muted);">
+                    ${field.label}${field.required ? ' <span style="color:var(--danger-color);">*</span>' : ''}
+                </label>
+                ${inputHTML}
+            </div>`;
+    });
+    // Column selector — so admin can place card directly into any column
+    formBody.innerHTML += `
+        <div style="margin-bottom:15px;">
+            <label style="display:block;margin-bottom:6px;font-size:0.85rem;color:var(--text-muted);">Place in Column</label>
+            <select id="nt_column" class="form-input">
+                ${currentBoardColumns.map(c=>`<option value="${c}">${c}</option>`).join('')}
+            </select>
+        </div>`;
+    newTicketModal.style.display = 'flex';
+});
+
+document.getElementById('close-new-ticket-btn').addEventListener('click', () => newTicketModal.style.display = 'none');
+
+document.getElementById('submit-new-ticket-btn').addEventListener('click', async () => {
+    const submitBtn = document.getElementById('submit-new-ticket-btn');
+    const payload = {};
+    let valid = true;
+
+    for (const field of currentFormFields) {
+        const el = document.getElementById(`nt_${field.id}`);
+        if (!el) continue;
+
+        if (el.tagName === 'DIV') {
+            // Radio
+            const checked = el.querySelector('input[type="radio"]:checked');
+            if (checked) payload[field.id] = checked.value;
+            // Checkbox
+            const boxes = Array.from(el.querySelectorAll('input[type="checkbox"]:checked'));
+            if (boxes.length) payload[field.id] = boxes.map(b => b.value);
+            if (field.required && !payload[field.id]) { valid = false; alert(`'${field.label}' is required.`); break; }
+        } else {
+            const val = el.value.trim();
+            if (field.required && !val) { valid = false; alert(`'${field.label}' is required.`); break; }
+            if (val) payload[field.id] = val;
+        }
+    }
+    if (!valid) return;
+
+    const targetColumn = document.getElementById('nt_column').value || currentBoardColumns[0];
+    const titleVal = payload['f_title'] || payload[currentFormFields[0]?.id] || 'Admin Ticket';
+    const emailVal = payload['f_email'] || auth.currentUser?.email || 'Admin';
+
+    submitBtn.disabled = true;
+    submitBtn.innerText = 'Creating...';
+
+    try {
+        const counterRef = doc(db, 'counters', 'tickets');
+        const newNum = await runTransaction(db, async (tx) => {
+            const counter = await tx.get(counterRef);
+            const next = counter.exists() ? (counter.data().count || 0) + 1 : 1;
+            if (!counter.exists()) tx.set(counterRef, { count: next });
+            else tx.update(counterRef, { count: next });
+            return next;
+        });
+
+        const ticketId = `EIC-TKT-${String(newNum).padStart(4, '0')}`;
+        const now = new Date().toISOString();
+
+        await addDoc(collection(db, 'cards'), {
+            ticketId,
+            title: titleVal,
+            requesterEmail: emailVal,
+            status: targetColumn,
+            createdAt: now,
+            formData: payload,
+            activityLog: [{ action: `Ticket manually created by ${auth.currentUser?.email}`, timestamp: now, user: auth.currentUser?.email || 'Admin', type: 'system' }]
+        });
+
+        newTicketModal.style.display = 'none';
+        alert(`✅ Ticket ${ticketId} created and placed in '${targetColumn}'!`);
+    } catch(err) {
+        alert('Failed to create ticket: ' + err.message);
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'Create Ticket';
+    }
+});
