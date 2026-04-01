@@ -41,7 +41,7 @@ function renderDynamicForm() {
     
     // Pass 1: Render All Fields
     formFieldsConfig.forEach(field => {
-        let labelHTML = `<label style="color:var(--text-muted);font-size:0.85rem;margin-bottom:5px;display:block;">${field.label}</label>`;
+        let labelHTML = `<label class="form-label">${field.label}</label>`;
         let inputHTML = '';
         let requiredAttr = field.required ? 'required' : '';
 
@@ -50,19 +50,19 @@ function renderDynamicForm() {
         } else if (field.type === 'email') {
             inputHTML = `<input type="email" id="${field.id}" name="${field.id}" class="form-input" ${requiredAttr}>`;
         } else if (field.type === 'file') {
-            inputHTML = `<input type="file" id="${field.id}" name="${field.id}" class="form-input" accept="image/*" ${requiredAttr} style="background: transparent; padding: 10px 0;">`;
+            inputHTML = `<input type="file" id="${field.id}" name="${field.id}" class="form-input" accept="image/*" ${requiredAttr}>`;
         } else if (field.type === 'select') {
             inputHTML = `<select id="${field.id}" name="${field.id}" class="form-input" ${requiredAttr}>
                             <option value="">Select an option...</option>
                             ${(field.options || []).map(opt => `<option value="${opt}">${opt}</option>`).join('')}
                          </select>`;
         } else if (field.type === 'radio') {
-            inputHTML = `<div id="${field.id}" style="display:flex; flex-direction:column; gap:8px; margin-bottom:15px; color:white;">
-                            ${(field.options || []).map(opt => `<label style="display:flex; align-items:center; gap:8px;"><input type="radio" name="${field.id}" value="${opt}" ${requiredAttr}> ${opt}</label>`).join('')}
+            inputHTML = `<div id="${field.id}" class="radio-group" style="display:flex; flex-direction:column; gap:8px;">
+                            ${(field.options || []).map(opt => `<label style="display:flex; align-items:center; gap:8px; color: #fff;"><input type="radio" name="${field.id}" value="${opt}" ${requiredAttr}> ${opt}</label>`).join('')}
                          </div>`;
         } else if (field.type === 'checkbox') {
-            inputHTML = `<div id="${field.id}" style="display:flex; flex-direction:column; gap:8px; margin-bottom:15px; color:white;">
-                            ${(field.options || []).map(opt => `<label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" name="${field.id}[]" value="${opt}"> ${opt}</label>`).join('')}
+            inputHTML = `<div id="${field.id}" class="checkbox-group" style="display:flex; flex-direction:column; gap:8px;">
+                            ${(field.options || []).map(opt => `<label style="display:flex; align-items:center; gap:8px; color: #fff;"><input type="checkbox" name="${field.id}[]" value="${opt}"> ${opt}</label>`).join('')}
                          </div>`;
         } else {
             inputHTML = `<input type="text" id="${field.id}" name="${field.id}" class="form-input" ${requiredAttr}>`;
@@ -70,7 +70,7 @@ function renderDynamicForm() {
 
         const wrap = document.createElement('div');
         wrap.id = `wrapper_${field.id}`;
-        wrap.style.marginBottom = "15px";
+        wrap.className = 'form-group-wrap';
         wrap.innerHTML = labelHTML + inputHTML;
         
         // Hide conditional fields initially
