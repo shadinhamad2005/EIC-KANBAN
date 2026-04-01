@@ -283,7 +283,22 @@ settingsBtn.addEventListener('click', () => {
     }
 
 
+    closeAllModals();
     settingsModal.style.display = 'flex';
+});
+
+function closeAllModals() {
+    [settingsModal, analyticsModal, historyModal, cardModal].forEach(m => {
+        if(m) m.style.display = 'none';
+    });
+}
+
+// Click outside to close
+document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('modal-overlay') && e.target.id !== 'auth-overlay') {
+        closeAllModals();
+        if (activeModalCardId) activeModalCardId = null;
+    }
 });
 
 document.getElementById('close-settings-btn').addEventListener('click', () => settingsModal.style.display = 'none');
@@ -465,6 +480,7 @@ document.getElementById('export-csv-btn').addEventListener('click', () => {
 
 // === Card Detail Modal ===
 function openCardModal(cardId) {
+    closeAllModals();
     activeModalCardId = cardId;
     const card = allCardsData[cardId];
     if(!card) return;
@@ -575,6 +591,7 @@ async function logAction(cardId, actionText, type = 'system') {
 
 // === Analytics & History Modals ===
 analyticsBtn.addEventListener('click', () => {
+    closeAllModals();
     let t_active = 0, t_sla = 0, t_done = 0, sum_hours = 0;
     const statusCounts = {};
 
@@ -605,6 +622,7 @@ analyticsBtn.addEventListener('click', () => {
 document.getElementById('close-analytics-btn').addEventListener('click', () => analyticsModal.style.display = 'none');
 
 historyBtn.addEventListener('click', () => {
+    closeAllModals();
     const tbody = document.getElementById('history-table-body');
     tbody.innerHTML = '';
     const archived = Object.values(allCardsData).filter(c => c.status === 'Archived').sort((a,b) => new Date(b.archivedAt || 0) - new Date(a.archivedAt || 0));
