@@ -38,6 +38,7 @@ let currentFormFields = [
 let allCardsData = {}; 
 let activeModalCardId = null;
 let chartInstance = null;
+let editingFieldId = null;
 
 // HTML5 Notifications
 let notificationsEnabled = false;
@@ -248,6 +249,8 @@ const newFieldOptionsInput = document.getElementById('new-field-options');
 const newFieldParentSelect = document.getElementById('new-field-condition-parent');
 const conditionEqualsText = document.getElementById('condition-equals-text');
 const conditionValueInput = document.getElementById('new-field-condition-value');
+const cancelEditBtn = document.getElementById('cancel-edit-btn');
+const addFieldBtn = document.getElementById('add-field-btn');
 
 // Toggle advanced options when appropriate types are selected
 newFieldTypeSelect.addEventListener('change', (e) => {
@@ -262,11 +265,24 @@ newFieldParentSelect.addEventListener('change', (e) => {
     conditionValueInput.style.display = hasParent ? 'block' : 'none';
 });
 
+let builderSortableInstance = null;
 settingsBtn.addEventListener('click', () => {
     document.getElementById('settings-board-title').value = boardTitleDisplay.innerText;
     document.getElementById('settings-board-columns').value = currentBoardColumns.join(', ');
     renderBuilderList();
     
+    if(!builderSortableInstance) {
+        builderSortableInstance = new Sortable(document.getElementById('builder-fields-list'), {
+            animation: 150,
+            ghostClass: 'sortable-ghost',
+            onEnd: function (evt) {
+                const temp = currentFormFields.splice(evt.oldIndex, 1)[0];
+                currentFormFields.splice(evt.newIndex, 0, temp);
+                renderBuilderList();
+            }
+        });
+    }
+
     if (!qrCodeInstance) {
         const portalUrl = window.location.href.replace(/index\.html$|\/$/, '') + (window.location.href.endsWith('/') ? '' : '/') + 'intake.html';
         qrCodeInstance = new QRCode(document.getElementById("settings-qrcode"), { text: portalUrl, width: 128, height: 128, colorDark : "#0d1117", colorLight : "#ffffff" });
@@ -295,49 +311,94 @@ function renderBuilderList() {
             metaHtml += `<br><small style="color:var(--warning-color);">Condition: If '${parentName}' equals '${field.condition.value}'</small>`;
         }
         
-        list.innerHTML += `<div class="builder-item"><span><strong>${field.label}</strong> ${metaHtml}</span><button onclick="window.removeField(${index})">Remove</button></div>`;
+        list.innerHTML += `<div class="builder-item" data-id="${field.id}" style="cursor: grab;"><span><strong>☰ ${field.label}</strong> ${metaHtml}</span><div><button onclick="window.editField('${field.id}')" style="margin-right: 5px; background: transparent; border: 1px solid var(--border-color); color: var(--text-primary); padding: 4px 8px; border-radius: 4px; cursor: pointer;">Edit</button><button onclick="window.removeField('${field.id}')" style="background: transparent; border: 1px solid var(--danger-color); color: var(--danger-color); padding: 4px 8px; border-radius: 4px; cursor: pointer;">Remove</button></div></div>`;
     });
 }
-window.removeField = function(index) { currentFormFields.splice(index, 1); renderBuilderList(); }
-
-document.getElementById('add-field-btn').addEventListener('click', () => {
-    const label = document.getElementById('new-field-label').value;
-    const type = document.getElementById('new-field-type').value;
-    const optionsRaw = document.getElementById('new-field-options').value;
+window.removeField = function(id) { 
+    currentFormFields = currentFormFields.filter(f => f.id !== id); 
+    if(editingFieldId === id) cancelEditBtn.click();
+    renderBuilderList(); 
+}
+window.editField = function(id) {
+    const field = currentFormFields.find(f => f.id === id);
+    if(!field) return;
+    editingFieldId = id;
+    document.getElementById('new-field-label').value = field.label;
+    document.getElementById('new-field-type').value = field.type;
+    document.getElementById('new-field-options').value = (field.options || []).join(', ');
     
-    const conditionParent = document.getElementById('new-field-condition-parent').value;
-    const conditionValue = document.getElementById('new-field-condition-value').value;
+    // Toggle options visibility manually
+    newFieldOptionsInput.style.display = ['select', 'radio', 'checkbox'].includes(field.type) ? 'block' : 'none';
     
-    if(!label) return;
-    
-    let options = [];
-    if(['select', 'radio', 'checkbox'].includes(type) && optionsRaw) {
-        options = optionsRaw.split(',').map(s => s.trim()).filter(s => s);
+    if(field.condition && field.condition.dependsOn) {
+        document.getElementById('new-field-condition-parent').value = field.condition.dependsOn;
+        document.getElementById('new-field-condition-value').value = field.condition.value;
+        conditionEqualsText.style.display = 'inline';
+        conditionValueInput.style.display = 'block';
+    } else {
+        document.getElementById('new-field-condition-parent').value = '';
+        document.getElementById('new-field-condition-value').value = '';
+        conditionEqualsText.style.display = 'none';
+        conditionValueInput.style.display = 'none';
     }
     
-    let condition = null;
-    if(conditionParent && conditionValue) {
-        condition = { dependsOn: conditionParent, value: conditionValue };
-    }
-    
-    currentFormFields.push({ 
-        id: "f_" + Math.random().toString(36).substr(2, 5), 
-        label, 
-        type, 
-        required: false,
-        options: options,
-        condition: condition
+    addFieldBtn.innerText = 'Update Field Structure';
+    cancelEditBtn.style.display = 'inline-block';
+}
+if (cancelEditBtn) {
+    cancelEditBtn.addEventListener('click', () => {
+        editingFieldId = null;
+        document.getElementById('new-field-label').value = ''; 
+        document.getElementById('new-field-options').value = '';
+        document.getElementById('new-field-condition-parent').value = '';
+        document.getElementById('new-field-condition-value').value = '';
+        conditionEqualsText.style.display = 'none';
+        conditionValueInput.style.display = 'none';
+        if (addFieldBtn) addFieldBtn.innerText = 'Add Field Structure';
+        cancelEditBtn.style.display = 'none';
     });
-    
-    document.getElementById('new-field-label').value = ''; 
-    document.getElementById('new-field-options').value = '';
-    document.getElementById('new-field-condition-parent').value = '';
-    document.getElementById('new-field-condition-value').value = '';
-    conditionEqualsText.style.display = 'none';
-    conditionValueInput.style.display = 'none';
-    
-    renderBuilderList();
-});
+}
+
+if (addFieldBtn) {
+    addFieldBtn.addEventListener('click', () => {
+        const label = document.getElementById('new-field-label').value;
+        const type = document.getElementById('new-field-type').value;
+        const optionsRaw = document.getElementById('new-field-options').value;
+        
+        const conditionParent = document.getElementById('new-field-condition-parent').value;
+        const conditionValue = document.getElementById('new-field-condition-value').value;
+        
+        if(!label) return;
+        
+        let options = [];
+        if(['select', 'radio', 'checkbox'].includes(type) && optionsRaw) {
+            options = optionsRaw.split(',').map(s => s.trim()).filter(s => s);
+        }
+        
+        let condition = null;
+        if(conditionParent && conditionValue) {
+            condition = { dependsOn: conditionParent, value: conditionValue };
+        }
+        
+        if(editingFieldId) {
+            const fieldIndex = currentFormFields.findIndex(f => f.id === editingFieldId);
+            if(fieldIndex > -1) {
+                currentFormFields[fieldIndex] = {
+                    ...currentFormFields[fieldIndex],
+                    label, type, options, condition
+                };
+            }
+        } else {
+            currentFormFields.push({ 
+                id: "f_" + Math.random().toString(36).substr(2, 5), 
+                label, type, required: false, options, condition
+            });
+        }
+        
+        if (cancelEditBtn) cancelEditBtn.click(); // reuses the reset logic!
+        renderBuilderList();
+    });
+}
 
 document.getElementById('save-settings-btn').addEventListener('click', async () => {
     const title = document.getElementById('settings-board-title').value;
