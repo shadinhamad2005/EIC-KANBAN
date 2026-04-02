@@ -437,6 +437,15 @@ settingsBtn.addEventListener('click', () => {
     settingsModal.style.display = 'flex';
 });
 
+// Event delegation for builder list (fixes DOMPurify stripping onclick)
+document.getElementById('builder-fields-list').addEventListener('click', (e) => {
+    const item = e.target.closest('.builder-item');
+    if (!item) return;
+    const id = item.getAttribute('data-id');
+    if (e.target.classList.contains('btn-edit-field')) window.editField(id);
+    if (e.target.classList.contains('btn-remove-field')) window.removeField(id);
+});
+
 function closeAllModals() {
     const modals = [
         settingsModal, analyticsModal, historyModal, cardModal,
@@ -479,7 +488,7 @@ function renderBuilderList() {
             metaHtml += `<br><small style="color:var(--warning-color);">Condition: If '${parentName}' equals '${field.condition.value}'</small>`;
         }
         
-        list.innerHTML += DOMPurify.sanitize(`<div class="builder-item" data-id="${field.id}" style="cursor: grab;"><span><strong>☰ ${field.label}</strong> ${metaHtml}</span><div><button onclick="window.editField('${field.id}')" style="margin-right: 5px; background: transparent; border: 1px solid var(--border-color); color: var(--text-primary); padding: 4px 8px; border-radius: 4px; cursor: pointer;">Edit</button><button onclick="window.removeField('${field.id}')" style="background: transparent; border: 1px solid var(--danger-color); color: var(--danger-color); padding: 4px 8px; border-radius: 4px; cursor: pointer;">Remove</button></div></div>`);
+        list.innerHTML += DOMPurify.sanitize(`<div class="builder-item" data-id="${field.id}" style="cursor: grab;"><span><strong>☰ ${field.label}</strong> ${metaHtml}</span><div><button class="btn-edit-field" style="margin-right: 5px; background: transparent; border: 1px solid var(--border-color); color: var(--text-primary); padding: 4px 8px; border-radius: 4px; cursor: pointer;">Edit</button><button class="btn-remove-field" style="background: transparent; border: 1px solid var(--danger-color); color: var(--danger-color); padding: 4px 8px; border-radius: 4px; cursor: pointer;">Remove</button></div></div>`);
     });
 }
 window.removeField = function(id) { 
