@@ -1,14 +1,14 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
 
 :root {
-  --bg-color: #0b0f19;
-  --panel-bg: rgba(20, 25, 35, 0.4);
+  --bg-color: #020617;
+  --panel-bg: rgba(15, 23, 42, 0.6);
   --text-main: #f8fafc;
   --text-muted: #94a3b8;
-  --accent-color: #3b82f6;
-  --danger-color: #ef4444;
+  --accent-color: #e11d48; /* EIC Red */
+  --danger-color: #f43f5e;
   --success-color: #10b981;
-  --border-color: rgba(255, 255, 255, 0.1);
+  --border-color: rgba(255, 255, 255, 0.08);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -17,8 +17,8 @@ body {
   font-family: 'Plus Jakarta Sans', sans-serif;
   background-color: var(--bg-color);
   background-image: 
-    radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.15), transparent 25%),
-    radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.15), transparent 25%);
+    radial-gradient(circle at 15% 50%, rgba(225, 29, 72, 0.08), transparent 25%),
+    radial-gradient(circle at 85% 30%, rgba(30, 41, 59, 0.15), transparent 25%);
   color: var(--text-main);
   min-height: 100vh;
   display: flex;
@@ -27,22 +27,21 @@ body {
   padding: 2rem 1rem;
 }
 
-/* Container */
 .intake-container {
   width: 100%;
-  max-width: 600px;
+  max-width: 640px;
   background: var(--panel-bg);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 20px;
-  padding: 2.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+  padding: 3rem;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-  animation: floatIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: floatIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes floatIn {
-    0% { opacity: 0; transform: translateY(20px); }
+    0% { opacity: 0; transform: translateY(10px); }
     100% { opacity: 1; transform: translateY(0); }
 }
 
@@ -51,49 +50,68 @@ header {
   margin-bottom: 2.5rem;
 }
 
+.portal-logo {
+  height: 50px;
+  margin-bottom: 1.5rem;
+}
+
 header h1 {
-  font-size: 1.8rem;
-  font-weight: 700;
+  font-size: 2rem;
+  font-weight: 800;
   margin-bottom: 0.5rem;
-  background: linear-gradient(135deg, #60a5fa, #c084fc);
+  background: linear-gradient(135deg, #fff, #94a3b8);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
-header div {
-  font-size: 0.95rem;
+.portal-subtitle {
+  font-size: 1rem;
   color: var(--text-muted);
+  font-weight: 500;
+}
+
+.portal-description {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 1.5rem;
+  margin-bottom: 2.5rem;
+}
+
+.portal-description h3 {
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+  color: var(--accent-color);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.portal-description p {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  line-height: 1.6;
 }
 
 .form-group-wrap {
-  margin-bottom: 1.25rem;
-  animation: fadeIn 0.4s ease forwards;
-  opacity: 0;
-  animation-fill-mode: forwards;
+  margin-bottom: 1.5rem;
 }
 
-.form-group-wrap:nth-child(1) { animation-delay: 0.1s; }
-.form-group-wrap:nth-child(2) { animation-delay: 0.15s; }
-.form-group-wrap:nth-child(3) { animation-delay: 0.2s; }
-.form-group-wrap:nth-child(4) { animation-delay: 0.25s; }
-.form-group-wrap:nth-child(5) { animation-delay: 0.3s; }
-.form-group-wrap:nth-child(n+6) { animation-delay: 0.35s; }
-
 .form-label {
-  color: var(--text-muted);
+  color: #f1f5f9;
   font-size: 0.85rem;
-  font-weight: 500;
-  margin-bottom: 6px;
+  font-weight: 600;
+  margin-bottom: 8px;
   display: block;
 }
 
 .form-input {
   width: 100%;
-  padding: 14px 16px;
-  background: rgba(0, 0, 0, 0.2);
+  padding: 14px 18px;
+  background: rgba(2, 6, 23, 0.3);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: 12px;
   color: #fff;
   font-size: 0.95rem;
   font-family: inherit;
@@ -103,66 +121,30 @@ header div {
 .form-input:focus {
   outline: none;
   border-color: var(--accent-color);
-  background: rgba(0, 0, 0, 0.3);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
-}
-
-.form-input::file-selector-button {
-  border: 1px solid var(--border-color);
-  background: rgba(255,255,255,0.05);
-  padding: 8px 16px;
-  border-radius: 6px;
-  color: #fff;
-  cursor: pointer;
-  margin-right: 15px;
-  transition: 0.2s;
-  font-family: inherit;
-}
-.form-input::file-selector-button:hover { background: rgba(255,255,255,0.1); }
-
-/* Custom Checkbox and Radio styling inside dynamic container */
-.radio-group label, .checkbox-group label {
-  background: rgba(0,0,0,0.15);
-  border: 1px solid var(--border-color);
-  padding: 10px 14px;
-  border-radius: 8px;
-  transition: 0.2s;
-  cursor: pointer;
-}
-.radio-group label:hover, .checkbox-group label:hover {
-  background: rgba(255,255,255,0.05);
-  border-color: rgba(255,255,255,0.2);
-}
-
-input[type="radio"], input[type="checkbox"] {
-  accent-color: var(--accent-color);
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
+  background: rgba(2, 6, 23, 0.5);
+  box-shadow: 0 0 0 4px rgba(225, 29, 72, 0.15);
 }
 
 .btn-primary {
   width: 100%;
-  padding: 16px;
-  margin-top: 1rem;
-  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  padding: 18px;
+  margin-top: 1.5rem;
+  background: var(--accent-color);
   color: white;
   border: none;
-  border-radius: 12px;
+  border-radius: 14px;
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   transition: all 0.3s ease;
-  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 10px 15px -3px rgba(225, 29, 72, 0.3);
   font-family: inherit;
 }
 
-.btn-primary:not(:disabled):hover {
+.btn-primary:hover {
+  background: #be123c;
   transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4);
+  box-shadow: 0 20px 25px -5px rgba(225, 29, 72, 0.4);
 }
-.btn-primary:active { transform: translateY(0); }
-.btn-primary:disabled { opacity: 0.7; cursor: not-allowed; }
 
-
-@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }

@@ -1,10 +1,19 @@
-import { db, auth } from './firebase-init.js';
-import { 
-  onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut
-} from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
-import { 
-  collection, onSnapshot, doc, updateDoc, setDoc, arrayUnion, addDoc, runTransaction, getDoc, getDocs, query, where, deleteDoc 
-} from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
+const firebaseConfig = {
+  apiKey: "AIzaSyAPRI3IvsvHaPS4BaFjTiasZLvhEgrc6Ts",
+  authDomain: "eic-kanban.firebaseapp.com",
+  projectId: "eic-kanban",
+  storageBucket: "eic-kanban.firebasestorage.app",
+  messagingSenderId: "759761467686",
+  appId: "1:759761467686:web:1696346f0fa5fac44269e7"
+};
+
+// Initialize Firebase
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const auth = firebase.auth();
+
+// Initialize icons on load
+document.addEventListener('DOMContentLoaded', () => lucide.createIcons());
 
 // === Core DOM Elements ===
 const authOverlay = document.getElementById('auth-overlay');
@@ -33,6 +42,8 @@ let unsubscribeBoards = null;
 let activeBoardId = 'helpdesk';
 let allBoardsData = {};
 let currentBoardColumns = ['Incoming', 'In Progress', 'Done'];
+let currentBoardStaff = [];
+let currentBoardCategories = [];
 let currentBoardType = 'helpdesk';
 let currentFormFields = [
     { id: "f_title", label: "Task Title *", type: "text", required: true },
@@ -44,7 +55,7 @@ let allCardsData = {};
 let activeModalCardId = null;
 let chartInstance = null;
 let editingFieldId = null;
-let selectedBoardType = 'internal'; // for create-board modal
+let selectedBoardType = 'internal'; 
 
 // HTML5 Notifications
 let notificationsEnabled = false;
@@ -57,7 +68,7 @@ if ("Notification" in window) {
 // === Authentication ===
 document.getElementById('signup-link').addEventListener('click', (e) => {
     e.preventDefault(); isSignup = !isSignup;
-    loginBtn.innerText = isSignup ? 'Sign Up' : 'Log In';
+    loginBtn.innerText = isSignup ? 'Sign Up' : 'Log In to Workspace';
     e.target.innerText = isSignup ? 'Log In instead' : 'Sign Up';
 });
 
@@ -66,70 +77,82 @@ loginBtn.addEventListener('click', async () => {
     const password = document.getElementById('password-input').value;
     const errorMsg = document.getElementById('auth-error-msg');
     try {
-        if (isSignup) await createUserWithEmailAndPassword(auth, email, password);
-        else await signInWithEmailAndPassword(auth, email, password);
-    } catch (error) { errorMsg.innerText = error.message; }
+        if (isSignup) await auth.createUserWithEmailAndPassword(email, password);
+        else await auth.signInWithEmailAndPassword(email, password);
+    } catch (error) { 
+        console.error("Auth error:", error);
+        errorMsg.innerText = error.message; 
+        alert("Login Error: " + error.message); 
+    }
 });
 
-logoutBtn.addEventListener('click', () => signOut(auth));
+logoutBtn.addEventListener('click', () => auth.signOut());
 
-onAuthStateChanged(auth, (user) => {
+auth.onAuthStateChanged((user) => {
     if (user) {
-        authOverlay.style.opacity = '0';
-        setTimeout(() => authOverlay.style.display = 'none', 300);
+        console.log("User logged in:", user.email);
+        if (authOverlay) {
+            authOverlay.style.opacity = '0';
+            authOverlay.style.pointerEvents = 'none';
+            setTimeout(() => { authOverlay.style.display = 'none'; }, 500);
+        }
         userEmailDisplay.innerText = user.email;
-        settingsBtn.style.display = 'inline-block';
-        analyticsBtn.style.display = 'inline-block';
-        historyBtn.style.display = 'inline-block';
-        newTicketBtn.style.display = 'inline-block';
-        logoutBtn.style.display = 'inline-block';
-        globalSearch.style.display = 'inline-block';
+        [settingsBtn, analyticsBtn, historyBtn, globalSearch, newTicketBtn, logoutBtn].forEach(el => {
+            if (el) el.style.display = 'inline-block';
+        });
         initWorkspace();
     } else {
-        authOverlay.style.display = 'flex';
-        setTimeout(() => authOverlay.style.opacity = '1', 10);
+        console.log("No user session.");
+        if (authOverlay) {
+            authOverlay.style.display = 'flex';
+            authOverlay.style.pointerEvents = 'auto';
+            setTimeout(() => authOverlay.style.opacity = '1', 10);
+        }
         userEmailDisplay.innerText = '';
-        [settingsBtn, analyticsBtn, historyBtn, globalSearch, newTicketBtn, logoutBtn].forEach(el => el.style.display = 'none');
+        [settingsBtn, analyticsBtn, historyBtn, globalSearch, newTicketBtn, logoutBtn].forEach(el => {
+            if (el) el.style.display = 'none';
+        });
         if (unsubscribeCards) { unsubscribeCards(); unsubscribeCards = null; }
         if (unsubscribeSettings) { unsubscribeSettings(); unsubscribeSettings = null; }
         if (unsubscribeBoards) { unsubscribeBoards(); unsubscribeBoards = null; }
         boardContainer.innerHTML = '';
-        document.getElementById('board-sidebar').innerHTML = '';
+        const sidebar = document.getElementById('board-sidebar');
+        if (sidebar) sidebar.innerHTML = '';
         allBoardsData = {}; allCardsData = {};
     }
 });
 
 // === Workspace Initialization ===
 async function initWorkspace() {
-    await seedDefaultBoards();
-    
-    // Auto-update Helpdesk if field is missing (Migrate existing board)
-    const helpdeskRef = doc(db, 'boards', 'helpdesk');
-    const snap = await getDoc(helpdeskRef);
-    if (snap.exists()) {
-        const data = snap.data();
-        const hasUrgent = (data.formFields || []).some(f => f.id === 'f_urgent');
-        if (!hasUrgent) {
-            const updatedFields = [...(data.formFields || []), { id: "f_urgent", label: "Requires Urgent Attention (1-2 Hours)", type: "checkbox", options: ["Urgent"] }];
-            await updateDoc(helpdeskRef, { formFields: updatedFields });
-            // Also sync config for intake.js
-            await updateDoc(doc(db, 'settings', 'config'), { formFields: updatedFields });
+    try {
+        await seedDefaultBoards();
+        const helpdeskRef = db.collection('boards').doc('helpdesk');
+        const snap = await helpdeskRef.get();
+        if (snap.exists) {
+            const data = snap.data();
+            const hasUrgent = (data.formFields || []).some(f => f.id === 'f_urgent');
+            if (!hasUrgent) {
+                const updatedFields = [...(data.formFields || []), { id: "f_urgent", label: "Requires Urgent Attention (1-2 Hours)", type: "checkbox", options: ["Urgent"] }];
+                await helpdeskRef.update({ formFields: updatedFields });
+                await db.collection('settings').doc('config').update({ formFields: updatedFields });
+            }
         }
+        initBoardsListener();
+    } catch (e) {
+        console.error("Workspace init failed:", e);
+        alert("System Initialization Error: " + e.message);
     }
-
-    initBoardsListener();
 }
 
 async function seedDefaultBoards() {
-    const helpdeskRef = doc(db, 'boards', 'helpdesk');
-    const maintenanceRef = doc(db, 'boards', 'maintenance');
-    const [hdSnap, mSnap] = await Promise.all([getDoc(helpdeskRef), getDoc(maintenanceRef)]);
+    const helpdeskRef = db.collection('boards').doc('helpdesk');
+    const maintenanceRef = db.collection('boards').doc('maintenance');
+    const [hdSnap, mSnap] = await Promise.all([helpdeskRef.get(), maintenanceRef.get()]);
     
-    // Seed Helpdesk board and migrate settings/config into it
-    if (!hdSnap.exists()) {
-        const cfgSnap = await getDoc(doc(db, 'settings', 'config'));
-        const cfg = cfgSnap.exists() ? cfgSnap.data() : {};
-        await setDoc(helpdeskRef, {
+    if (!hdSnap.exists) {
+        const cfgSnap = await db.collection('settings').doc('config').get();
+        const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+        await helpdeskRef.set({
             name: cfg.boardTitle || 'EIC Helpdesk',
             type: 'helpdesk',
             icon: '🎫',
@@ -138,9 +161,8 @@ async function seedDefaultBoards() {
             createdAt: new Date().toISOString()
         });
     }
-    // Seed Maintenance board
-    if (!mSnap.exists()) {
-        await setDoc(maintenanceRef, {
+    if (!mSnap.exists) {
+        await maintenanceRef.set({
             name: 'Maintenance',
             type: 'internal',
             icon: '🔧',
@@ -152,12 +174,12 @@ async function seedDefaultBoards() {
 }
 
 function initBoardsListener() {
-    unsubscribeBoards = onSnapshot(collection(db, 'boards'), (snap) => {
+    unsubscribeBoards = db.collection('boards').onSnapshot((snap) => {
         allBoardsData = {};
         snap.forEach(d => { allBoardsData[d.id] = { id: d.id, ...d.data() }; });
         renderSidebar();
-        // Always load the active board
         switchBoard(activeBoardId, true);
+        lucide.createIcons();
     });
 }
 
@@ -167,19 +189,25 @@ function renderSidebar() {
     Object.values(allBoardsData).forEach(board => {
         const btn = document.createElement('button');
         btn.className = 'sidebar-board-btn' + (board.id === activeBoardId ? ' active' : '');
-        btn.innerHTML = DOMPurify.sanitize(`<span class="board-icon">${board.icon || '📋'}</span><span class="sidebar-label">${board.name}</span>`);
+        
+        let iconName = 'layout';
+        if (board.type === 'helpdesk') iconName = 'ticket';
+        else if (board.type === 'internal') iconName = 'wrench';
+        else if (board.type === 'project') iconName = 'folder';
+
+        btn.innerHTML = `<i data-lucide="${iconName}"></i><span class="sidebar-label">${board.name}</span>`;
         btn.addEventListener('click', () => switchBoard(board.id));
         sidebar.appendChild(btn);
     });
-    // Divider + Add Board button
     const divider = document.createElement('div');
     divider.className = 'sidebar-divider';
     const addBtn = document.createElement('button');
     addBtn.className = 'sidebar-board-btn';
-    addBtn.innerHTML = `<span class="board-icon">➕</span><span class="sidebar-label">New Board</span>`;
+    addBtn.innerHTML = `<i data-lucide="plus-circle"></i><span class="sidebar-label">New Board</span>`;
     addBtn.addEventListener('click', () => { closeAllModals(); document.getElementById('create-board-modal').style.display = 'flex'; });
     sidebar.appendChild(divider);
     sidebar.appendChild(addBtn);
+    lucide.createIcons();
 }
 
 function switchBoard(boardId, force = false) {
@@ -188,24 +216,22 @@ function switchBoard(boardId, force = false) {
     const board = allBoardsData[boardId];
     if (!board) return;
 
-    // Update state from board  
     currentBoardColumns = board.columns || ['Incoming', 'In Progress', 'Done'];
+    currentBoardStaff = board.staffList || [];
+    currentBoardCategories = board.categoryList || ['Maintenance', 'Security', 'Cleaning', 'IT', 'Finance', 'Other'];
     currentBoardType = board.type || 'internal';
     currentFormFields = board.formFields || [];
     boardTitleDisplay.innerText = board.name;
 
-    // Show/hide Form Builder button in settings based on type
     const formBuilderSection = document.querySelector('#settings-modal .modal-body > div:last-child');
     if (formBuilderSection) formBuilderSection.style.display = currentBoardType === 'helpdesk' ? '' : 'none';
 
-    // Show/hide New Ticket vs Add Card button
     if (currentBoardType === 'helpdesk') {
         newTicketBtn.innerText = '📋 Log Ticket';
     } else {
         newTicketBtn.innerText = '➕ Add Card';
     }
 
-    // Teardown old listener, rebuild layout, init new listener
     if (unsubscribeCards) { unsubscribeCards(); unsubscribeCards = null; }
     allCardsData = {};
     renderBoardLayout();
@@ -246,11 +272,14 @@ function renderBoardLayout() {
 
                 const cardId = itemEl.getAttribute('data-id');
                 const now = new Date().toISOString();
-                const updates = { status: toStatus, activityLog: arrayUnion({ type: 'status', action: `Moved from ${fromStatus} to ${toStatus}`, timestamp: now, user: auth.currentUser.email }) };
+                const updates = { 
+                    status: toStatus, 
+                    activityLog: firebase.firestore.FieldValue.arrayUnion({ type: 'status', action: `Moved from ${fromStatus} to ${toStatus}`, timestamp: now, user: auth.currentUser.email }) 
+                };
                 if (toStatus === 'In Progress' && fromStatus !== 'In Progress') updates.startedAt = now;
                 if (toStatus === 'Done') updates.completedAt = now;
 
-                try { await updateDoc(doc(db, 'cards', cardId), updates); } 
+                try { await db.collection('cards').doc(cardId).update(updates); } 
                 catch (err) { alert("Error moving card: " + err.message); }
             }
         });
@@ -259,41 +288,28 @@ function renderBoardLayout() {
 }
 
 function initCardsListener() {
-    unsubscribeCards = onSnapshot(collection(db, 'cards'), (snapshot) => {
+    unsubscribeCards = db.collection('cards').onSnapshot((snapshot) => {
         const oldDataKeys = Object.keys(allCardsData);
-
         snapshot.docChanges().forEach(change => {
             if (change.type === 'removed') delete allCardsData[change.doc.id];
         });
-
         snapshot.forEach(docSnap => {
             const data = docSnap.data();
             const id = docSnap.id;
-
-            // Filter: only show cards for the active board
             const cardBoard = data.boardId || 'helpdesk';
             if (cardBoard !== activeBoardId) return;
-
-            // Push Notification for new Incoming (helpdesk only)
             if (activeBoardId === 'helpdesk' && oldDataKeys.length > 0 && !allCardsData[id] && notificationsEnabled && data.status === 'Incoming') {
                 new Notification("New Ticket Received!", { body: `${data.ticketId}: ${data.title}` });
             }
-
-            // Client-Side Archival Sweep (30 Days)
             if (activeBoardId === 'helpdesk' && data.status === 'Done' && data.completedAt) {
                 const daysOld = (new Date() - new Date(data.completedAt)) / (1000 * 60 * 60 * 24);
                 if(daysOld > 30) {
-                    (async () => {
-                        try { await updateDoc(doc(db, 'cards', id), { status: 'Archived', archivedAt: new Date().toISOString() }); }
-                        catch(e) { console.error("Archive sweep failed", e); }
-                    })();
+                    db.collection('cards').doc(id).update({ status: 'Archived', archivedAt: new Date().toISOString() }).catch(e => console.error(e));
                     return;
                 }
             }
-            
             allCardsData[id] = { id: id, ...data };
         });
-
         distributeCards();
         if (activeModalCardId && allCardsData[activeModalCardId]) openCardModal(activeModalCardId);
     });
@@ -304,11 +320,8 @@ function distributeCards() {
         const listEl = document.getElementById(`list-${status}`);
         if(listEl) listEl.innerHTML = '';
     });
-
     const searchQuery = globalSearch.value.toLowerCase();
     const grouped = {};
-
-    // Priority Weights for sorting
     const prioWeight = { 'Urgent': 4, 'High': 3, 'Normal': 2, 'Low': 1 };
     const sortedCards = Object.values(allCardsData).sort((a, b) => {
         const weightA = prioWeight[a.priority || 'Normal'] || 2;
@@ -316,82 +329,81 @@ function distributeCards() {
         if (weightA !== weightB) return weightB - weightA;
         return new Date(b.createdAt) - new Date(a.createdAt);
     });
-
     sortedCards.forEach(card => {
         if(card.status === 'Archived') return;
-
-        // Search Filter
-        const searchString = `${card.ticketId || ''} ${card.title || ''} ${card.requesterEmail || ''}`.toLowerCase();
+        const searchString = `${card.ticketId || ''} ${card.title || ''} ${card.requesterEmail || ''} ${(card.tags || []).join(' ')}`.toLowerCase();
         if(searchQuery && !searchString.includes(searchQuery)) return;
-
         const status = card.status || 'Incoming';
         if (!grouped[status]) grouped[status] = [];
         grouped[status].push(card);
     });
-
     currentBoardColumns.forEach(status => {
         if(!grouped[status]) {
             const countEl = document.getElementById(`count-${status}`);
             if(countEl) countEl.innerText = '0';
             return;
         }
-
         const listEl = document.getElementById(`list-${status}`);
         grouped[status].forEach(card => {
             const cardEl = document.createElement('div');
             cardEl.className = 'card';
             cardEl.setAttribute('data-id', card.id);
-            
             const prio = card.priority || 'Normal';
             const prioClass = `prio-${prio.toLowerCase()}`;
-            
-            // --- NEW: PRIORITY STRIP ---
             const prioStrip = document.createElement('div');
             prioStrip.className = `card-prio-strip ${prioClass}`;
             cardEl.appendChild(prioStrip);
-
-            // Show 🚨 if customer flagged as urgent
             const customerUrgent = card.isUrgentFlag || card.formData?.f_urgent?.includes('Urgent') || card.formData?.Urgent_Attention_Needed;
             if (customerUrgent) {
                 const badge = document.createElement('div');
                 badge.className = 'urgent-badge';
                 badge.innerHTML = '🚨';
-                badge.title = 'Customer Flagged as Urgent (1-2hr)';
                 cardEl.appendChild(badge);
             }
-
             let slaClass = '';
             if (status === 'In Progress' && card.startedAt) {
-                const hours = (new Date() - new Date(card.startedAt)) / (1000 * 60 * 60);
+                const hours = (new Date() - new Date(card.startedAt)) / 3600000;
                 if (hours > 48) slaClass = 'sla-danger';
                 else if (hours > 24) slaClass = 'sla-warning';
             }
             if (slaClass) cardEl.classList.add(slaClass);
-
             const displayTitle = card.title || card.formData?.f_title || "Untitled";
-            
-            // Re-render rest of content safely
             const content = document.createElement('div');
             content.className = 'card-content';
+            let tagsHtml = '';
+            if (card.tags && card.tags.length > 0) {
+                tagsHtml = `<div class="card-tags">${card.tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>`;
+            }
+            let footerHtml = '';
+            if (card.assignee || card.dueDate) {
+                const initials = card.assignee ? card.assignee.substring(0, 2).toUpperCase() : '?';
+                footerHtml = `
+                    <div class="card-footer">
+                        <div style="font-size: 0.7rem; color: var(--text-muted); display: flex; align-items: center; gap: 4px;">
+                            ${card.dueDate ? `<i data-lucide="calendar" style="width:12px;height:12px;"></i> ${new Date(card.dueDate).toLocaleDateString()}` : ''}
+                        </div>
+                        ${card.assignee ? `<div class="assignee-avatar">${initials}</div>` : ''}
+                    </div>
+                `;
+            }
             content.innerHTML = DOMPurify.sanitize(`
                 ${card.ticketId ? `<div class="card-ticket">${card.ticketId}</div>` : ''}
                 <div class="card-title">${displayTitle}</div>
                 <div class="card-desc">${card.requesterEmail || 'No email provided'}</div>
+                ${tagsHtml}
+                ${footerHtml}
             `);
             cardEl.appendChild(content);
-            
             cardEl.addEventListener('click', () => openCardModal(card.id));
             if(listEl) listEl.appendChild(cardEl);
         });
-
         const countEl = document.getElementById(`count-${status}`);
-        if(countEl) countEl.innerText = grouped[status].length;
+        if(countEl) countEl.innerText = grouped[status] ? grouped[status].length : '0';
     });
+    lucide.createIcons();
 }
 
 globalSearch.addEventListener('input', distributeCards);
-
-// === Modals and Settings ===
 
 const newFieldTypeSelect = document.getElementById('new-field-type');
 const newFieldOptionsInput = document.getElementById('new-field-options');
@@ -401,29 +413,29 @@ const conditionValueInput = document.getElementById('new-field-condition-value')
 const cancelEditBtn = document.getElementById('cancel-edit-btn');
 const addFieldBtn = document.getElementById('add-field-btn');
 
-// Toggle advanced options when appropriate types are selected
-newFieldTypeSelect.addEventListener('change', (e) => {
-    const isChoice = ['select', 'radio', 'checkbox'].includes(e.target.value);
-    newFieldOptionsInput.style.display = isChoice ? 'block' : 'none';
-});
-
-// Toggle condition value input when a parent is selected
-newFieldParentSelect.addEventListener('change', (e) => {
-    const hasParent = e.target.value !== '';
-    conditionEqualsText.style.display = hasParent ? 'inline' : 'none';
-    conditionValueInput.style.display = hasParent ? 'block' : 'none';
-});
+if (newFieldTypeSelect) {
+    newFieldTypeSelect.addEventListener('change', (e) => {
+        if (newFieldOptionsInput) newFieldOptionsInput.style.display = ['select', 'radio', 'checkbox'].includes(e.target.value) ? 'block' : 'none';
+    });
+}
+if (newFieldParentSelect) {
+    newFieldParentSelect.addEventListener('change', (e) => {
+        const hasParent = e.target.value !== '';
+        if (conditionEqualsText) conditionEqualsText.style.display = hasParent ? 'inline' : 'none';
+        if (conditionValueInput) conditionValueInput.style.display = hasParent ? 'block' : 'none';
+    });
+}
 
 let builderSortableInstance = null;
 settingsBtn.addEventListener('click', () => {
     document.getElementById('settings-board-title').value = boardTitleDisplay.innerText;
     document.getElementById('settings-board-columns').value = currentBoardColumns.join(', ');
     renderBuilderList();
-    
+    renderStaffSettings();
+    renderCategorySettings();
     if(!builderSortableInstance) {
         builderSortableInstance = new Sortable(document.getElementById('builder-fields-list'), {
             animation: 150,
-            ghostClass: 'sortable-ghost',
             onEnd: function (evt) {
                 const temp = currentFormFields.splice(evt.oldIndex, 1)[0];
                 currentFormFields.splice(evt.newIndex, 0, temp);
@@ -431,13 +443,11 @@ settingsBtn.addEventListener('click', () => {
             }
         });
     }
-
-
     closeAllModals();
+    document.getElementById('close-card-btn').onclick = () => { cardModal.style.display = 'none'; activeModalCardId = null; };
     settingsModal.style.display = 'flex';
 });
 
-// Event delegation for builder list (fixes DOMPurify stripping onclick)
 document.getElementById('builder-fields-list').addEventListener('click', (e) => {
     const item = e.target.closest('.builder-item');
     if (!item) return;
@@ -447,55 +457,34 @@ document.getElementById('builder-fields-list').addEventListener('click', (e) => 
 });
 
 function closeAllModals() {
-    const modals = [
-        settingsModal, analyticsModal, historyModal, cardModal,
-        document.getElementById('new-ticket-modal'),
-        document.getElementById('add-card-modal'),
-        document.getElementById('create-board-modal')
-    ];
-    modals.forEach(m => {
-        if(m) m.style.display = 'none';
-    });
+    [settingsModal, analyticsModal, historyModal, cardModal, document.getElementById('new-ticket-modal'), document.getElementById('add-card-modal'), document.getElementById('create-board-modal')].forEach(m => { if(m) m.style.display = 'none'; });
 }
-
-// Click outside to close
-document.addEventListener('click', (e) => {
-    if (e.target.classList.contains('modal-overlay') && e.target.id !== 'auth-overlay') {
-        closeAllModals();
-        if (activeModalCardId) activeModalCardId = null;
-    }
-});
-
-document.getElementById('close-settings-btn').addEventListener('click', () => settingsModal.style.display = 'none');
+document.addEventListener('click', (e) => { if (e.target.classList.contains('modal-overlay') && e.target.id !== 'auth-overlay') { closeAllModals(); if (activeModalCardId) activeModalCardId = null; } });
 
 function renderBuilderList() {
     const list = document.getElementById('builder-fields-list');
     list.innerHTML = '';
-    
-    // Update condition parent dropdown
     newFieldParentSelect.innerHTML = '<option value="">Always Show (No Condition)</option>';
     
-    currentFormFields.forEach((field, index) => {
-        // Add to condition dropdown
+    currentFormFields.forEach((field) => {
         newFieldParentSelect.innerHTML += `<option value="${field.id}">${field.label}</option>`;
-        
-        let metaHtml = `<small style="color:var(--accent-color);">(${field.type})</small>`;
-        if (field.required) metaHtml += ` <small style="color:var(--danger-color); font-weight:bold;">[Required]</small>`;
-        if (field.options && field.options.length > 0) metaHtml += ` <br><small>Options: ${field.options.join(', ')}</small>`;
-        if (field.condition && field.condition.dependsOn) {
-            const parentField = currentFormFields.find(f => f.id === field.condition.dependsOn);
-            const parentName = parentField ? parentField.label : field.condition.dependsOn;
-            metaHtml += `<br><small style="color:var(--warning-color);">Condition: If '${parentName}' equals '${field.condition.value}'</small>`;
-        }
-        
-        list.innerHTML += DOMPurify.sanitize(`<div class="builder-item" data-id="${field.id}" style="cursor: grab;"><span><strong>☰ ${field.label}</strong> ${metaHtml}</span><div><button class="btn-edit-field" style="margin-right: 5px; background: transparent; border: 1px solid var(--border-color); color: var(--text-primary); padding: 4px 8px; border-radius: 4px; cursor: pointer;">Edit</button><button class="btn-remove-field" style="background: transparent; border: 1px solid var(--danger-color); color: var(--danger-color); padding: 4px 8px; border-radius: 4px; cursor: pointer;">Remove</button></div></div>`);
+        list.innerHTML += DOMPurify.sanitize(`
+            <div class="builder-item" data-id="${field.id}">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <i data-lucide="grip-vertical" style="width:14px; color:var(--text-muted); cursor:grab;"></i>
+                    <span style="font-weight:600; font-size:0.9rem;">${field.label}</span>
+                    <span class="type-badge">${field.type}</span>
+                </div>
+                <div class="builder-actions">
+                    <button class="btn-icon-sm btn-edit-field" title="Edit"><i data-lucide="edit-3" style="width:14px;"></i></button>
+                    <button class="btn-icon-sm btn-remove-field delete" title="Remove"><i data-lucide="trash-2" style="width:14px;"></i></button>
+                </div>
+            </div>
+        `);
     });
+    lucide.createIcons();
 }
-window.removeField = function(id) { 
-    currentFormFields = currentFormFields.filter(f => f.id !== id); 
-    if(editingFieldId === id) cancelEditBtn.click();
-    renderBuilderList(); 
-}
+window.removeField = function(id) { currentFormFields = currentFormFields.filter(f => f.id !== id); renderBuilderList(); }
 window.editField = function(id) {
     const field = currentFormFields.find(f => f.id === id);
     if(!field) return;
@@ -503,515 +492,283 @@ window.editField = function(id) {
     document.getElementById('new-field-label').value = field.label;
     document.getElementById('new-field-type').value = field.type;
     document.getElementById('new-field-options').value = (field.options || []).join(', ');
-    const reqCheckbox = document.getElementById('new-field-required');
-    if(reqCheckbox) reqCheckbox.checked = !!field.required;
-    
-    // Toggle options visibility manually
+    document.getElementById('new-field-required').checked = !!field.required;
     newFieldOptionsInput.style.display = ['select', 'radio', 'checkbox'].includes(field.type) ? 'block' : 'none';
-    
-    if(field.condition && field.condition.dependsOn) {
-        document.getElementById('new-field-condition-parent').value = field.condition.dependsOn;
-        document.getElementById('new-field-condition-value').value = field.condition.value;
-        conditionEqualsText.style.display = 'inline';
-        conditionValueInput.style.display = 'block';
-    } else {
-        document.getElementById('new-field-condition-parent').value = '';
-        document.getElementById('new-field-condition-value').value = '';
-        conditionEqualsText.style.display = 'none';
-        conditionValueInput.style.display = 'none';
-    }
-    
     addFieldBtn.innerText = 'Update Field Structure';
     cancelEditBtn.style.display = 'inline-block';
 }
-if (cancelEditBtn) {
-    cancelEditBtn.addEventListener('click', () => {
-        editingFieldId = null;
-        document.getElementById('new-field-label').value = ''; 
-        document.getElementById('new-field-options').value = '';
-        document.getElementById('new-field-condition-parent').value = '';
-        document.getElementById('new-field-condition-value').value = '';
-        conditionEqualsText.style.display = 'none';
-        conditionValueInput.style.display = 'none';
-        const reqCheckbox = document.getElementById('new-field-required');
-        if(reqCheckbox) reqCheckbox.checked = false;
-        if (addFieldBtn) addFieldBtn.innerText = 'Add Field Structure';
-        cancelEditBtn.style.display = 'none';
-    });
-}
-
-if (addFieldBtn) {
-    addFieldBtn.addEventListener('click', () => {
-        const label = document.getElementById('new-field-label').value;
-        const type = document.getElementById('new-field-type').value;
-        const optionsRaw = document.getElementById('new-field-options').value;
-        
-        const conditionParent = document.getElementById('new-field-condition-parent').value;
-        const conditionValue = document.getElementById('new-field-condition-value').value;
-        const reqCheckbox = document.getElementById('new-field-required');
-        const isRequired = reqCheckbox ? reqCheckbox.checked : false;
-        
-        if(!label) return;
-        
-        let options = [];
-        if(['select', 'radio', 'checkbox'].includes(type) && optionsRaw) {
-            options = optionsRaw.split(',').map(s => s.trim()).filter(s => s);
-        }
-        
-        let condition = null;
-        if(conditionParent && conditionValue) {
-            condition = { dependsOn: conditionParent, value: conditionValue };
-        }
-        
-        if(editingFieldId) {
-            const fieldIndex = currentFormFields.findIndex(f => f.id === editingFieldId);
-            if(fieldIndex > -1) {
-                currentFormFields[fieldIndex] = {
-                    ...currentFormFields[fieldIndex],
-                    label, type, options, condition, required: isRequired
-                };
-            }
-        } else {
-            currentFormFields.push({ 
-                id: "f_" + Math.random().toString(36).substr(2, 5), 
-                label, type, required: isRequired, options, condition
-            });
-        }
-        
-        if (cancelEditBtn) cancelEditBtn.click(); // reuses the reset logic!
-        renderBuilderList();
-    });
-}
+cancelEditBtn.addEventListener('click', () => {
+    editingFieldId = null;
+    document.getElementById('new-field-label').value = ''; 
+    document.getElementById('new-field-options').value = '';
+    document.getElementById('new-field-required').checked = false;
+    addFieldBtn.innerText = 'Add Field Structure';
+    cancelEditBtn.style.display = 'none';
+});
+addFieldBtn.addEventListener('click', () => {
+    const label = document.getElementById('new-field-label').value;
+    const type = document.getElementById('new-field-type').value;
+    const optionsRaw = document.getElementById('new-field-options').value;
+    const isRequired = document.getElementById('new-field-required').checked;
+    if(!label) return;
+    let options = ['select', 'radio', 'checkbox'].includes(type) ? optionsRaw.split(',').map(s => s.trim()).filter(s => s) : [];
+    if(editingFieldId) {
+        const idx = currentFormFields.findIndex(f => f.id === editingFieldId);
+        if(idx > -1) currentFormFields[idx] = { ...currentFormFields[idx], label, type, options, required: isRequired };
+    } else {
+        currentFormFields.push({ id: "f_" + Math.random().toString(36).substr(2, 5), label, type, required: isRequired, options });
+    }
+    cancelEditBtn.click();
+    renderBuilderList();
+});
 
 document.getElementById('save-settings-btn').addEventListener('click', async () => {
     const title = document.getElementById('settings-board-title').value;
     const cols = document.getElementById('settings-board-columns').value.split(',').map(s=>s.trim()).filter(s=>s);
     try {
-        // Save to the active board's document
-        await setDoc(doc(db, 'boards', activeBoardId), { name: title, columns: cols, formFields: currentFormFields }, { merge: true });
-        // Also keep settings/config in sync for the helpdesk board (intake portal reads from it)
-        if (activeBoardId === 'helpdesk') {
-            await setDoc(doc(db, 'settings', 'config'), { boardTitle: title, boardColumns: cols, formFields: currentFormFields }, { merge: true });
-        }
+        await db.collection('boards').doc(activeBoardId).set({ name: title, columns: cols, formFields: currentFormFields, staffList: currentBoardStaff, categoryList: currentBoardCategories }, { merge: true });
+        if (activeBoardId === 'helpdesk') await db.collection('settings').doc('config').set({ boardTitle: title, boardColumns: cols, formFields: currentFormFields, staffList: currentBoardStaff, categoryList: currentBoardCategories }, { merge: true });
         settingsModal.style.display = 'none';
-        alert("Configuration saved successfully.");
-    } catch(err) { alert("Failed to save: " + err.message); }
+        alert("Saved.");
+    } catch(err) { alert(err.message); }
 });
 
+function renderStaffSettings() {
+    const list = document.getElementById('settings-staff-list');
+    list.innerHTML = '';
+    currentBoardStaff.forEach((name, idx) => {
+        list.innerHTML += `
+            <div class="builder-item" style="padding: 10px 15px;">
+                <span style="font-size: 0.9rem; font-weight: 500;">${name}</span>
+                <button class="btn-icon-sm delete" onclick="removeStaff(${idx})"><i data-lucide="trash-2" style="width:14px;"></i></button>
+            </div>
+        `;
+    });
+    lucide.createIcons();
+}
+document.getElementById('add-staff-btn').addEventListener('click', () => {
+    const input = document.getElementById('new-staff-name');
+    const name = input.value.trim();
+    if (name && !currentBoardStaff.includes(name)) {
+        currentBoardStaff.push(name);
+        input.value = '';
+        renderStaffSettings();
+    }
+});
+window.removeStaff = (idx) => {
+    currentBoardStaff.splice(idx, 1);
+    renderStaffSettings();
+};
+
+function renderCategorySettings() {
+    const list = document.getElementById('settings-category-list');
+    list.innerHTML = '';
+    currentBoardCategories.forEach((cat, idx) => {
+        list.innerHTML += `
+            <div class="builder-item" style="padding: 10px 15px;">
+                <span style="font-size: 0.9rem; font-weight: 500;">${cat}</span>
+                <button class="btn-icon-sm delete" onclick="removeCategory(${idx})"><i data-lucide="trash-2" style="width:14px;"></i></button>
+            </div>
+        `;
+    });
+    lucide.createIcons();
+}
+document.getElementById('add-category-btn').addEventListener('click', () => {
+    const input = document.getElementById('new-category-name');
+    const name = input.value.trim();
+    if (name && !currentBoardCategories.includes(name)) {
+        currentBoardCategories.push(name);
+        input.value = '';
+        renderCategorySettings();
+    }
+});
+window.removeCategory = (idx) => {
+    currentBoardCategories.splice(idx, 1);
+    renderCategorySettings();
+};
+
 document.getElementById('delete-board-btn').addEventListener('click', async () => {
-    // Safety check: Prevent deleting system boards
-    if (activeBoardId === 'helpdesk') {
-        return alert("The 'EIC Helpdesk' board is the system's primary workspace and cannot be deleted. You can rename it or change its columns, but the database requires it to remain active for the intake portal.");
-    }
-    if (activeBoardId === 'maintenance') {
-        return alert("The 'Maintenance' board is a core system-default board. If you don't need it, you can rename it for another purpose, but it cannot be deleted at this time.");
-    }
-
-    const board = allBoardsData[activeBoardId];
-    if (!board) return;
-
-    const confirmDelete = confirm(`⚠️ DANGER: Are you sure you want to delete the board "${board.name}" and ALL its cards?\n\nThis action cannot be undone.`);
-    
-    if (confirmDelete) {
+    if (activeBoardId === 'helpdesk' || activeBoardId === 'maintenance') return alert("System boards cannot be deleted.");
+    if (confirm(`Delete board "${allBoardsData[activeBoardId].name}" and ALL its cards?`)) {
         try {
-            // --- CLEANUP: Delete all cards associated with this board ---
-            const cardsRef = collection(db, 'cards');
-            const q = query(cardsRef, where("boardId", "==", activeBoardId));
-            const cardsSnap = await getDocs(q);
-            const deletePromises = [];
-            cardsSnap.forEach(d => deletePromises.push(deleteDoc(doc(db, 'cards', d.id))));
-            await Promise.all(deletePromises);
-
-            await deleteDoc(doc(db, 'boards', activeBoardId));
+            const cards = await db.collection('cards').where("boardId", "==", activeBoardId).get();
+            const batch = db.batch();
+            cards.forEach(d => batch.delete(d.ref));
+            await batch.commit();
+            await db.collection('boards').doc(activeBoardId).delete();
             settingsModal.style.display = 'none';
-            alert(`✅ Board "${board.name}" and its ${deletePromises.length} cards have been deleted.`);
             switchBoard('helpdesk');
-        } catch (err) {
-            alert("Failed to delete board: " + err.message);
-        }
+        } catch (err) { alert(err.message); }
     }
 });
 
 document.getElementById('delete-card-icon-btn').addEventListener('click', async () => {
     if (!activeModalCardId) return;
-    const card = allCardsData[activeModalCardId];
-    if (!card) return;
-
-    const confirmDelete = confirm(`🗑️ Permanently delete card "${card.title || card.ticketId || 'this task'}"?\n\nThis action cannot be undone.`);
-    
-    if (confirmDelete) {
-        console.log(`[DELETION] Attempting to delete card: ${activeModalCardId} (${card.ticketId})`);
-        try {
-            await deleteDoc(doc(db, 'cards', activeModalCardId));
-            console.log(`[DELETION] Successfully deleted card: ${activeModalCardId}`);
-            cardModal.style.display = 'none';
-            activeModalCardId = null;
-            // No need to alert, the real-time listener will remove it from UI
-        } catch (err) {
-            console.error(`[DELETION] FAILED to delete card: ${activeModalCardId}`, err);
-            alert("Failed to delete card: " + err.message);
-        }
+    if (confirm("Delete card?")) {
+        try { await db.collection('cards').doc(activeModalCardId).delete(); cardModal.style.display = 'none'; }
+        catch (err) { alert(err.message); }
     }
 });
 
-document.getElementById('modal-priority-select').addEventListener('change', async (e) => {
-    if (!activeModalCardId) return;
-    const newPrio = e.target.value;
-    try {
-        await updateDoc(doc(db, 'cards', activeModalCardId), { priority: newPrio });
-    } catch (err) {
-        alert("Failed to update priority: " + err.message);
-        // revert UI if failed
-        e.target.value = allCardsData[activeModalCardId]?.priority || 'Normal';
-    }
-});
-
-document.getElementById('export-csv-btn').addEventListener('click', () => {
-    const cards = Object.values(allCardsData);
-    if(cards.length === 0) return alert('No data to export.');
-    
-    const dynamicHeaders = new Set();
-    cards.forEach(c => {
-        if(c.formData) Object.keys(c.formData).forEach(k => dynamicHeaders.add(k));
-    });
-    
-    const headers = ['Ticket ID', 'Title', 'Requester Email', 'Status', 'Created At', 'Started At', 'Completed At', 'Archived At'];
-    const dynamicHeaderArr = Array.from(dynamicHeaders);
-    
-    dynamicHeaderArr.forEach(headerKey => {
-        const configField = currentFormFields.find(f => f.id === headerKey);
-        headers.push(configField ? configField.label : headerKey);
-    });
-
-    let csvContent = headers.map(h => `"${String(h).replace(/"/g, '""')}"`).join(',') + '\n';
-    
-    cards.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).forEach(c => {
-        const row = [
-            c.ticketId || '',
-            c.title || '',
-            c.requesterEmail || '',
-            c.status || '',
-            c.createdAt ? new Date(c.createdAt).toLocaleString() : '',
-            c.startedAt ? new Date(c.startedAt).toLocaleString() : '',
-            c.completedAt ? new Date(c.completedAt).toLocaleString() : '',
-            c.archivedAt ? new Date(c.archivedAt).toLocaleString() : ''
-        ];
-        
-        dynamicHeaderArr.forEach(headerKey => {
-            let val = (c.formData || {})[headerKey] || '';
-            if(Array.isArray(val)) val = val.join(', ');
-            row.push(val);
-        });
-        
-        csvContent += row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',') + '\n';
-    });
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `EIC_Helpdesk_Export_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-});
-
-// === Card Detail Modal ===
 function openCardModal(cardId) {
     closeAllModals();
     activeModalCardId = cardId;
     const card = allCardsData[cardId];
     if(!card) return;
-
-    // Set priority selector
     document.getElementById('modal-priority-select').value = card.priority || 'Normal';
+    document.getElementById('modal-ticket-id').innerText = card.ticketId || "Ticket Details";
+    
+    // Update Delete and Close Buttons with Lucide
+    const headerActions = document.querySelector('#card-modal .modal-header div');
+    headerActions.innerHTML = `
+        <select id="modal-priority-select" class="modal-prio-select">
+            <option value="Normal">🟡 Normal</option>
+            <option value="Low">🟢 Low</option>
+            <option value="High">🟠 High</option>
+            <option value="Urgent">🔴 Urgent</option>
+        </select>
+        <button id="delete-card-icon-btn" class="icon-btn" style="width:32px; height:32px; border-radius:50%; color:#ef4444;" title="Delete Card"><i data-lucide="trash-2"></i></button>
+        <button class="close-btn" id="close-card-btn"><i data-lucide="x"></i></button>
+    `;
+    // Re-attach listeners for dynamically replaced buttons
+    document.getElementById('close-card-btn').onclick = () => cardModal.style.display = 'none';
+    document.getElementById('delete-card-icon-btn').onclick = async () => {
+        if (confirm("Delete this ticket permanently?")) {
+            await db.collection('cards').doc(cardId).delete();
+            cardModal.style.display = 'none';
+        }
+    };
+    document.getElementById('modal-priority-select').onchange = (e) => db.collection('cards').doc(cardId).update({ priority: e.target.value });
 
-    document.getElementById('modal-ticket-id').innerText = card.ticketId || "Helpdesk Ticket";
     const fieldsDiv = document.getElementById('modal-dynamic-fields');
-    fieldsDiv.innerHTML = `<h3 style="margin-bottom: 15px; border-bottom:1px solid var(--border-color); padding-bottom:5px;">Submission Details</h3>`;
+    fieldsDiv.innerHTML = `<h3 style="margin-bottom: 20px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--accent-color);">Submission Metadata</h3>`;
     
     let attachmentURL = null;
-
     if(card.formData) {
-        for(const [key, val] of Object.entries(card.formData)) {
-            const configField = currentFormFields.find(f => f.id === key);
-            
-            // Check if field is configured as a file, OR if the raw value happens to be a Base64 image
-            if((configField && configField.type === 'file') || (typeof val === 'string' && val.startsWith('data:image'))) {
-                attachmentURL = val; continue; 
-            }
-            
-            const label = configField ? configField.label : key;
-            
-            // Format Array (e.g. from Checkboxes) into a legible string instead of raw json
-            let contentString = val;
-            if (Array.isArray(val)) {
-                contentString = val.join(', ');
-            }
-            
-            // Failsafe: if a string is insanely long but doesn't start with data:image, truncate it so it never lags the UI
-            const displayVal = (typeof contentString === 'string' && contentString.length > 1000) ? '[Massive Data Payload Omitted]' : (contentString || '<em>Empty</em>');
-            fieldsDiv.innerHTML += DOMPurify.sanitize(`<div class="field-display"><label>${label}</label><div class="val" style="word-break: break-all;">${displayVal}</div></div>`);
-        }
-    } else fieldsDiv.innerHTML += `<p class="helper-text">No dynamic data</p>`;
-    fieldsDiv.innerHTML += DOMPurify.sanitize(`<div class="field-display" style="margin-top:20px;"><label>Status</label><div class="val" style="color:var(--accent-color); font-weight:600;">${card.status}</div></div>`);
-
-    // Render Attachment
-    const attZone = document.getElementById('modal-attachment-zone');
-    if(attachmentURL && (attachmentURL.startsWith('http') || attachmentURL.startsWith('data:image'))) {
-        attZone.style.display = 'block';
-        
-        const linkEl = document.getElementById('modal-attachment-link');
-        const imgEl = document.getElementById('modal-attachment-img');
-        const textEl = document.getElementById('modal-attachment-text');
-        
-        imgEl.src = attachmentURL;
-        imgEl.style.display = 'block';
-        linkEl.href = attachmentURL;
-        
-        // Browsers block opening Base64 images in new tabs for security. 
-        // We bypass this by forcing a local download to their computer.
-        if (attachmentURL.startsWith('data:image')) {
-            linkEl.setAttribute('download', `Helpdesk_Image_${card.ticketId}.jpg`);
-            linkEl.removeAttribute('target');
-            textEl.innerText = "Click to Download Image";
-        } else {
-            linkEl.removeAttribute('download');
-            linkEl.setAttribute('target', '_blank');
-            textEl.innerText = "Open External File";
-        }
-    } else {
-        attZone.style.display = 'none';
-        document.getElementById('modal-attachment-img').src = '';
+        Object.entries(card.formData).forEach(([key, val]) => {
+            if(typeof val === 'string' && val.startsWith('data:image')) { attachmentURL = val; return; }
+            fieldsDiv.innerHTML += DOMPurify.sanitize(`<div class="field-display"><label>${key.replace(/_/g, ' ')}</label><div class="val">${val}</div></div>`);
+        });
     }
 
-    // Markdown Timeline
+    const attZone = document.getElementById('modal-attachment-zone');
+    if(attachmentURL) {
+        attZone.style.display = 'block';
+        document.getElementById('modal-attachment-img').src = attachmentURL;
+        document.getElementById('modal-attachment-img').style.display = 'block';
+        document.getElementById('modal-attachment-link').href = attachmentURL;
+    } else {
+        attZone.style.display = 'none';
+    }
+
+    const assigneeSelect = document.getElementById('modal-assignee-select');
+    assigneeSelect.innerHTML = '<option value="">Unassigned</option>' + currentBoardStaff.map(s => `<option value="${s}">${s}</option>`).join('');
+    assigneeSelect.value = card.assignee || '';
+    document.getElementById('modal-due-date').value = card.dueDate || '';
+    document.getElementById('modal-tags-input').value = (card.tags || []).join(', ');
+    
+    document.getElementById('modal-assignee-select').onchange = () => db.collection('cards').doc(cardId).update({ assignee: document.getElementById('modal-assignee-select').value });
+    document.getElementById('modal-due-date').onchange = () => db.collection('cards').doc(cardId).update({ dueDate: document.getElementById('modal-due-date').value });
+    document.getElementById('modal-tags-input').onchange = () => db.collection('cards').doc(cardId).update({ tags: document.getElementById('modal-tags-input').value.split(',').map(t=>t.trim()).filter(t=>t) });
+
+    document.getElementById('action-email-btn').innerHTML = `<i data-lucide="mail"></i> Email`;
+    document.getElementById('action-email-btn').onclick = () => {
+        let recipient = card.requesterEmail || card.formData?.Contact_Email || card.formData?.f_email;
+        if (!recipient) return alert("No email address found.");
+        window.location.href = `mailto:${recipient}?subject=Re: ${card.ticketId}&body=Hello, we are working on your request.`;
+    };
+
+    document.getElementById('action-whatsapp-btn').innerHTML = `<i data-lucide="message-square"></i> WhatsApp`;
+    document.getElementById('action-whatsapp-btn').onclick = () => {
+        let phone = card.formData?.Contact_Phone || card.formData?.f_phone;
+        if (!phone) return alert("No phone number found.");
+        window.open(`https://wa.me/${phone.replace(/[^0-9]/g, '')}`, '_blank');
+    };
+
     const timelineDiv = document.getElementById('modal-timeline');
     timelineDiv.innerHTML = '';
-    const logs = card.activityLog || [];
-    logs.forEach(log => {
-        let isNote = log.type === 'note';
-        let bgStyle = isNote ? 'background: rgba(88, 166, 255, 0.15); border-left: 3px solid var(--accent-color)' : '';
-        let content = isNote ? marked.parse(log.action) : log.action;
-        timelineDiv.innerHTML += DOMPurify.sanitize(`<div class="timeline-event" style="${bgStyle}"><div class="meta">${new Date(log.timestamp).toLocaleString()} • ${log.user}</div><div class="${isNote ? 'markdown-body' : ''}">${content}</div></div>`);
+    (card.activityLog || []).forEach(log => {
+        let icon = 'info';
+        if(log.type === 'note') icon = 'message-circle';
+        if(log.type === 'status') icon = 'refresh-cw';
+        timelineDiv.innerHTML += `
+            <div class="timeline-event">
+                <div class="meta">${new Date(log.timestamp).toLocaleString()} • ${log.user}</div>
+                <div class="content">${log.action}</div>
+            </div>
+        `;
     });
-
-    document.getElementById('action-email-btn').onclick = () => {
-        let recipient = card.requesterEmail;
-
-        // Fallback: scan form fields by ID or label for an email address
-        if (!recipient || recipient === 'Unknown') {
-            recipient = card.formData?.f_email;
-        }
-        if (!recipient || recipient === 'Unknown') {
-            for (const key in (card.formData || {})) {
-                const configField = currentFormFields.find(f => f.id === key);
-                const labelLower = (configField?.label || '').toLowerCase();
-                if (labelLower.includes('email') || labelLower.includes('e-mail') || key.toLowerCase().includes('email')) {
-                    recipient = card.formData[key]; break;
-                }
-            }
-        }
-
-        if (!recipient || recipient === 'Unknown') return alert("No email address found on this ticket.");
-        const subject = encodeURIComponent(`Re: Your Request [${card.ticketId || 'Ticket'}]`);
-        const body = encodeURIComponent(
-`Dear Requester,
-
-Thank you for reaching out to us.
-
-We have received your support ticket (${card.ticketId}) and our team is currently reviewing your request. We will keep you updated on the progress.
-
-If you have any additional information to share, please do not hesitate to reply.
-
-Best regards,
-EIC Helpdesk Team`
-        );
-        logAction(cardId, `Sent Email Acknowledgment to ${recipient}`);
-        window.location.href = `mailto:${recipient}?subject=${subject}&body=${body}`;
-    };
-
-    document.getElementById('action-whatsapp-btn').onclick = () => {
-        let phone = card.formData?.f_phone;
-
-        if (!phone && card.formData) {
-            for (const key in card.formData) {
-                const configField = currentFormFields.find(f => f.id === key);
-                const labelLower = (configField?.label || '').toLowerCase();
-                const keyLower = key.toLowerCase();
-                if (keyLower.includes('phone') || keyLower.includes('whatsapp') ||
-                    labelLower.includes('phone') || labelLower.includes('mobile') ||
-                    labelLower.includes('whatsapp') || labelLower.includes('contact')) {
-                    phone = card.formData[key]; break;
-                }
-            }
-        }
-
-        if (!phone) return alert("No phone number found on this ticket. Make sure your form has a field with 'Phone' or 'Mobile' in its label.");
-        
-        // === Smart UAE (+971) Phone Normalizer ===
-        // Strip everything except digits and leading +
-        let digitsOnly = phone.replace(/[^0-9]/g, '');
-
-        // Already has full UAE country code: 971XXXXXXXXX
-        if (digitsOnly.startsWith('971') && digitsOnly.length >= 11) {
-            // Good as-is
-        }
-        // Local UAE format starting with 0: 05XXXXXXXX → strip leading 0, add 971
-        else if (digitsOnly.startsWith('0') && digitsOnly.length === 10) {
-            digitsOnly = '971' + digitsOnly.slice(1);
-        }
-        // Just the local number without 0: 5XXXXXXXX (9 digits, UAE mobile starts with 5)
-        else if (digitsOnly.startsWith('5') && digitsOnly.length === 9) {
-            digitsOnly = '971' + digitsOnly;
-        }
-        // Anything else (e.g. landlines or numbers from other countries)
-        else if (!digitsOnly.startsWith('971')) {
-            digitsOnly = '971' + digitsOnly;
-        }
-        
-        const draftMsg = 
-`Hello,
-
-We have received your support request (${card.ticketId}) and our team is currently working on it.
-
-We will get back to you shortly with an update.
-
-Thank you,
-EIC Helpdesk Team`;
-
-        logAction(cardId, `Initiated WhatsApp Update to +${digitsOnly}`);
-        window.open(`https://wa.me/${digitsOnly}?text=${encodeURIComponent(draftMsg)}`, '_blank');
-    };
-
+    lucide.createIcons();
     cardModal.style.display = 'flex';
 }
 
-document.getElementById('close-card-btn').addEventListener('click', () => { cardModal.style.display = 'none'; activeModalCardId = null; });
+document.getElementById('close-card-btn').addEventListener('click', () => cardModal.style.display = 'none');
 document.getElementById('add-note-btn').addEventListener('click', async () => {
-    if(!activeModalCardId) return;
     const text = document.getElementById('note-input').value.trim();
     if(!text) return;
-    document.getElementById('note-input').disabled = true;
-    try { await logAction(activeModalCardId, text, 'note'); document.getElementById('note-input').value = ''; } 
-    catch(e) { alert("Failed to save note"); } 
-    finally { document.getElementById('note-input').disabled = false; }
+    await logAction(activeModalCardId, text, 'note');
+    document.getElementById('note-input').value = '';
 });
-async function logAction(cardId, actionText, type = 'system') {
-    return updateDoc(doc(db, 'cards', cardId), { activityLog: arrayUnion({ type: type, action: actionText, timestamp: new Date().toISOString(), user: auth.currentUser.email }) });
+async function logAction(cardId, text, type = 'system') {
+    return db.collection('cards').doc(cardId).update({ activityLog: firebase.firestore.FieldValue.arrayUnion({ type, action: text, timestamp: new Date().toISOString(), user: auth.currentUser.email }) });
 }
 
-// === Analytics & History Modals ===
+// Modal Close Handlers
+document.getElementById('close-settings-btn').addEventListener('click', () => settingsModal.style.display = 'none');
+document.getElementById('close-analytics-btn').addEventListener('click', () => analyticsModal.style.display = 'none');
+document.getElementById('close-history-btn').addEventListener('click', () => historyModal.style.display = 'none');
+document.getElementById('close-new-ticket-btn').addEventListener('click', () => document.getElementById('new-ticket-modal').style.display = 'none');
+document.getElementById('close-add-card-btn').addEventListener('click', () => document.getElementById('add-card-modal').style.display = 'none');
+document.getElementById('close-card-btn').addEventListener('click', () => { cardModal.style.display = 'none'; activeModalCardId = null; });
+
+// ESC Key to close any modal
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeAllModals();
+});
+
 analyticsBtn.addEventListener('click', () => {
     closeAllModals();
-    let t_active = 0, t_sla = 0, t_done = 0, sum_hours = 0;
-    const statusCounts = {};
-
-    Object.values(allCardsData).forEach(card => {
-        if(card.status !== 'Archived') t_active++;
-        if(card.status === 'In Progress' && card.startedAt && ((new Date() - new Date(card.startedAt)) / 3600000) > 48) t_sla++;
-        
-        statusCounts[card.status] = (statusCounts[card.status] || 0) + 1;
-
-        if((card.status === 'Done' || card.status === 'Archived') && card.startedAt && card.completedAt) {
-            t_done++;
-            sum_hours += ((new Date(card.completedAt) - new Date(card.startedAt)) / 3600000);
-        }
-    });
-
-    document.getElementById('stat-total').innerText = t_active;
-    document.getElementById('stat-sla').innerText = t_sla;
-    document.getElementById('stat-avg').innerText = t_done > 0 ? (sum_hours/t_done).toFixed(1) + 'h' : '0h';
-
-    if(chartInstance) chartInstance.destroy();
-    chartInstance = new Chart(document.getElementById('metricsChart'), {
-        type: 'doughnut',
-        data: { labels: Object.keys(statusCounts), datasets: [{ data: Object.values(statusCounts), backgroundColor: ['#58a6ff', '#d29922', '#2ea043', '#8b949e'] }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins:{ legend:{ position: 'right', labels:{color:'#fff'} } } }
-    });
     analyticsModal.style.display = 'flex';
+    lucide.createIcons();
 });
-document.getElementById('close-analytics-btn').addEventListener('click', () => analyticsModal.style.display = 'none');
-
-historyBtn.addEventListener('click', () => {
-    closeAllModals();
-    const tbody = document.getElementById('history-table-body');
-    tbody.innerHTML = '';
-    const archived = Object.values(allCardsData).filter(c => c.status === 'Archived').sort((a,b) => new Date(b.archivedAt || 0) - new Date(a.archivedAt || 0));
-    
-    archived.forEach(card => {
-        let daysToComplete = "-";
-        if(card.startedAt && card.completedAt) daysToComplete = ((new Date(card.completedAt) - new Date(card.startedAt)) / 86400000).toFixed(1);
-        tbody.innerHTML += DOMPurify.sanitize(`<tr><td>${card.ticketId}</td><td>${card.title}</td><td>${card.requesterEmail}</td><td>${daysToComplete}</td><td>${new Date(card.archivedAt).toLocaleDateString()}</td></tr>`);
-    });
-    historyModal.style.display = 'flex';
-});
-document.getElementById('close-history-btn').addEventListener('click', () => historyModal.style.display = 'none');
-
-// === Manual New Ticket / Add Card Manager ===
-const newTicketModal = document.getElementById('new-ticket-modal');
-const addCardModal = document.getElementById('add-card-modal');
 
 newTicketBtn.addEventListener('click', () => {
     closeAllModals();
-    
-    // Route to different forms based on current board type
-    if (activeBoardId === 'helpdesk') {
+    if(currentBoardType === 'helpdesk') {
         const colSelect = document.getElementById('nt_column');
-        colSelect.innerHTML = currentBoardColumns.map(c => `<option value="${c}">${c}</option>`).join('');
-        ['nt_title','nt_name','nt_email','nt_phone','nt_unit','nt_notes'].forEach(id => {
-            const el = document.getElementById(id); if(el) el.value = '';
-        });
-        const isUrgentEl = document.getElementById('nt_urgent_flag');
-        if(isUrgentEl) isUrgentEl.checked = false;
-        newTicketModal.style.display = 'flex';
+        if(colSelect) colSelect.innerHTML = currentBoardColumns.map(c => `<option>${c}</option>`).join('');
+        
+        const catSelect = document.getElementById('nt_category');
+        if(catSelect) catSelect.innerHTML = '<option value="">— Select Category —</option>' + currentBoardCategories.map(c => `<option>${c}</option>`).join('');
+        
+        document.getElementById('new-ticket-modal').style.display = 'flex';
     } else {
-        // Internal/Simple form for maintenance and other boards
-        const colSelect = document.getElementById('ac_column');
-        colSelect.innerHTML = currentBoardColumns.map(c => `<option value="${c}">${c}</option>`).join('');
-        document.getElementById('ac_title').value = '';
-        document.getElementById('ac_notes').value = '';
-        document.getElementById('ac_priority').value = 'Normal';
-        addCardModal.style.display = 'flex';
+        const acColSelect = document.getElementById('ac_column');
+        if(acColSelect) acColSelect.innerHTML = currentBoardColumns.map(c => `<option>${c}</option>`).join('');
+        document.getElementById('add-card-modal').style.display = 'flex';
     }
+    lucide.createIcons();
 });
 
-document.getElementById('close-new-ticket-btn').addEventListener('click', () => newTicketModal.style.display = 'none');
-document.getElementById('close-add-card-btn').addEventListener('click', () => addCardModal.style.display = 'none');
-
-// Logic for Internal Card Submission
 document.getElementById('submit-add-card-btn').addEventListener('click', async () => {
     const title = document.getElementById('ac_title').value.trim();
-    const notes = document.getElementById('ac_notes').value.trim();
-    const column = document.getElementById('ac_column').value || currentBoardColumns[0];
-    const submitBtn = document.getElementById('submit-add-card-btn');
-
-    if (!title) return alert('Please enter a card title.');
-
-    submitBtn.disabled = true;
-    submitBtn.innerText = 'Adding...';
-
-    try {
-        const now = new Date().toISOString();
-        const priority = document.getElementById('ac_priority').value;
-        await addDoc(collection(db, 'cards'), {
-            boardId: activeBoardId,
-            title,
-            priority,
-            status: column,
-            createdAt: now,
-            formData: { Notes: notes },
-            activityLog: [{ action: `Note created in board: ${activeBoardId} with ${priority} priority`, timestamp: now, user: auth.currentUser?.email || 'Admin', type: 'system' }]
-        });
-        addCardModal.style.display = 'none';
-    } catch(err) {
-        alert('Failed to add card: ' + err.message);
-    } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerText = '✅ Add Card';
-    }
+    if(!title) return;
+    await db.collection('cards').add({
+        boardId: activeBoardId,
+        title,
+        status: 'Incoming',
+        createdAt: new Date().toISOString(),
+        priority: document.getElementById('ac_priority').value
+    });
+    closeAllModals();
 });
 
+// Property Type Conditional Logic
+document.getElementById('nt_property_type').addEventListener('change', (e) => {
+    const type = e.target.value;
+    document.getElementById('nt_warehouse_group').style.display = (type === 'warehouse') ? 'block' : 'none';
+    document.getElementById('nt_openyard_group').style.display = (type === 'openyard') ? 'block' : 'none';
+});
 
 document.getElementById('submit-new-ticket-btn').addEventListener('click', async () => {
     const submitBtn = document.getElementById('submit-new-ticket-btn');
@@ -1024,92 +781,52 @@ document.getElementById('submit-new-ticket-btn').addEventListener('click', async
     const isUrgent = document.getElementById('nt_urgent_flag').checked;
     const notes    = document.getElementById('nt_notes').value.trim();
     const column   = document.getElementById('nt_column').value || currentBoardColumns[0];
+    
+    // New Dynamic Fields
+    const propType = document.getElementById('nt_property_type').value;
+    const whNo     = document.getElementById('nt_warehouse_no').value.trim();
+    const opyNo    = document.getElementById('nt_opy_no').value.trim();
 
     if (!title) return alert('Please enter a Task / Issue Title.');
 
     submitBtn.disabled = true; submitBtn.innerText = 'Creating...';
     try {
-        const counterRef = doc(db, 'counters', 'tickets');
-        const newNum = await runTransaction(db, async (tx) => {
+        const counterRef = db.collection('counters').doc('tickets');
+        const newNum = await db.runTransaction(async (tx) => {
             const counter = await tx.get(counterRef);
-            const next = counter.exists() ? (counter.data().count || 0) + 1 : 1;
-            if (!counter.exists()) tx.set(counterRef, { count: next });
+            const next = counter.exists ? (counter.data().count || 0) + 1 : 1;
+            if (!counter.exists) tx.set(counterRef, { count: next });
             else tx.update(counterRef, { count: next });
             return next;
         });
         const ticketId = `EIC-TKT-${String(newNum).padStart(4, '0')}`;
         const now = new Date().toISOString();
-        await addDoc(collection(db, 'cards'), {
-            boardId: activeBoardId, // Tag with the board ID!
+        
+        const formData = { 
+            Tenant_Company: name, 
+            Contact_Email: email, 
+            Contact_Phone: phone, 
+            Property_Type: propType,
+            Unit_Number: unit,
+            Category: category, 
+            Urgent_Attention_Needed: isUrgent, 
+            Notes: notes 
+        };
+        if(propType === 'warehouse') formData.Warehouse_Number = whNo;
+        if(propType === 'openyard') formData.OPY_Number = opyNo;
+
+        await db.collection('cards').add({
+            boardId: activeBoardId,
             ticketId, title,
             requesterEmail: email || 'Admin Entry',
             status: column, createdAt: now,
-            priority: 'Normal', // Defaults to Normal; Admin can change in modal
+            priority: 'Normal',
             isUrgentFlag: isUrgent,
-            formData: { Contact_Name: name, Contact_Email: email, Contact_Phone: phone, Unit_Location: unit, Category: category, Urgent_Attention_Needed: isUrgent, Notes: notes },
+            formData: formData,
             activityLog: [{ action: `Ticket manually logged by ${auth.currentUser?.email}${isUrgent ? ' (URGENT FLAG CHECKED)' : ''}`, timestamp: now, user: auth.currentUser?.email || 'Admin', type: 'system' }]
         });
-        newTicketModal.style.display = 'none';
-        alert(`✅ Ticket ${ticketId} created and placed in '${column}'!`);
-    } catch(err) { alert('Failed to create ticket: ' + err.message); }
-    finally { submitBtn.disabled = false; submitBtn.innerText = '🚀 Create Ticket'; }
+        document.getElementById('new-ticket-modal').style.display = 'none';
+        alert(`✅ Ticket ${ticketId} created!`);
+    } catch(err) { alert('Failed: ' + err.message); }
+    finally { submitBtn.disabled = false; submitBtn.innerText = 'Create Ticket'; }
 });
-
-// === Create Board Logic ===
-const createBoardModal = document.getElementById('create-board-modal');
-const boardTypeCards = document.querySelectorAll('.board-type-card');
-
-boardTypeCards.forEach(card => {
-    card.addEventListener('click', () => {
-        boardTypeCards.forEach(c => c.classList.remove('selected'));
-        card.classList.add('selected');
-        selectedBoardType = card.dataset.type;
-        
-        // Auto-fill suggested columns based on type
-        const colInput = document.getElementById('cb_columns');
-        if (selectedBoardType === 'helpdesk') colInput.value = 'Incoming, In Progress, On Hold, Done';
-        else if (selectedBoardType === 'project') colInput.value = 'Backlog, In Progress, Quality Check, Done';
-        else colInput.value = 'To Do, In Progress, Done';
-    });
-});
-
-document.getElementById('close-create-board-btn').addEventListener('click', () => createBoardModal.style.display = 'none');
-
-document.getElementById('submit-create-board-btn').addEventListener('click', async () => {
-    const name = document.getElementById('cb_name').value.trim();
-    const cols = document.getElementById('cb_columns').value.split(',').map(s => s.trim()).filter(s => s);
-    const submitBtn = document.getElementById('submit-create-board-btn');
-
-    if (!name) return alert('Please enter a board name.');
-    if (cols.length === 0) return alert('Please enter at least one column.');
-
-    submitBtn.disabled = true;
-    submitBtn.innerText = 'Creating...';
-
-    try {
-        const boardId = name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Math.random().toString(36).substring(2, 6);
-        const icon = selectedBoardType === 'helpdesk' ? '🎫' : 
-                     selectedBoardType === 'project' ? '📁' : 
-                     selectedBoardType === 'internal' ? '🔧' : '⚙️';
-
-        await setDoc(doc(db, 'boards', boardId), {
-            name,
-            type: selectedBoardType,
-            icon,
-            columns: cols,
-            formFields: selectedBoardType === 'helpdesk' ? [{ id: "f_title", label: "Task Title *", type: "text", required: true }] : [],
-            createdAt: new Date().toISOString()
-        });
-
-        createBoardModal.style.display = 'none';
-        alert(`✅ Board "${name}" created!`);
-        switchBoard(boardId);
-    } catch(err) {
-        alert('Failed to create board: ' + err.message);
-    } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerText = '🚀 Create Board';
-    }
-});
-
-

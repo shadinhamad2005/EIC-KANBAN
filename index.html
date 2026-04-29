@@ -5,37 +5,56 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dynamic Kanban Workspace v4</title>
   <link rel="stylesheet" href="style.css">
+  <!-- Firebase (Universal/Compat Versions for local file support) -->
+  <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore-compat.js"></script>
+  
+  <!-- UI Libraries -->
+  <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.9/purify.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <script>
+    window.onerror = function(msg, url, line, col, error) {
+      alert("Script Error: " + msg + "\nAt: " + url + ":" + line);
+      return false;
+    };
+    console.log("Global script active");
+  </script>
 </head>
 <body>
 
   <!-- AUTHENTICATION OVERLAY -->
   <div id="auth-overlay">
     <div class="auth-panel">
+      <img src="logo.png" alt="EIC Logo" class="logo-large" onerror="this.style.display='none'">
       <h2>Welcome Back</h2>
+      <p>Secure login to EIC Kanban Portal</p>
       <div id="auth-error-msg" class="auth-error"></div>
       <input type="email" id="email-input" placeholder="Email Address">
       <input type="password" id="password-input" placeholder="Password">
-      <button id="login-btn" class="btn-primary">Log In</button>
+      <button id="login-btn" class="btn-primary">Log In to Workspace</button>
       <p style="text-align: center; margin-top: 15px; font-size: 0.8rem; color: var(--text-muted);">No account? <a href="#" id="signup-link" style="color: var(--accent-color);">Sign Up</a></p>
     </div>
   </div>
 
   <header>
-    <div style="display:flex; align-items:center; gap: 20px;">
+    <div class="logo-container">
+        <img src="logo.png" alt="EIC Logo" class="company-logo" onerror="this.style.display='none'">
         <h1 id="board-title-display">EIC Helpdesk</h1>
-        <input type="text" id="global-search" placeholder="🔍 Search ticket ID or keyword..." class="header-search" style="display:none;">
     </div>
-    <div style="display: flex; align-items: center; gap: 10px;">
-      <span id="user-email" style="font-size: 0.9rem; margin-right: 15px;"></span>
-      <button id="new-ticket-btn" class="btn-primary" style="display: none; padding: 8px 16px; font-size: 0.85rem;">➕ New Ticket</button>
-      <button id="settings-btn" class="icon-btn" style="display: none;" title="Board Settings">⚙️ Settings</button>
-      <button id="analytics-btn" class="icon-btn" style="display: none;" title="Analytics Dashboard">📊 Insights</button>
-      <button id="history-btn" class="icon-btn" style="display: none;" title="Archive History">🗄️ History</button>
-      <button id="logout-btn" class="icon-btn" style="display: none;">Log Out</button>
+    <div style="display: flex; align-items: center; gap: 15px;">
+      <input type="text" id="global-search" placeholder="🔍 Search tickets..." class="header-search" style="display:none;">
+      <span id="user-email" style="font-size: 0.85rem; color: var(--text-muted);"></span>
+      <button id="new-ticket-btn" class="btn-primary" style="display: none; width: auto;"><i data-lucide="plus"></i> Log Ticket</button>
+      <div class="header-actions" style="display: flex; gap: 8px;">
+        <button id="settings-btn" class="icon-btn" style="display: none;" title="Settings"><i data-lucide="settings"></i></button>
+        <button id="analytics-btn" class="icon-btn" style="display: none;" title="Analytics"><i data-lucide="bar-chart-3"></i></button>
+        <button id="history-btn" class="icon-btn" style="display: none;" title="Archive"><i data-lucide="archive"></i></button>
+        <button id="logout-btn" class="icon-btn" style="display: none;"><i data-lucide="log-out"></i></button>
+      </div>
     </div>
   </header>
 
@@ -50,75 +69,103 @@
   <div id="settings-modal" class="modal-overlay" style="display: none;">
     <div class="modal-panel settings-panel">
       <div class="modal-header">
-        <h2>Board Settings & Form Builder ⚙️</h2>
-        <button class="close-btn" id="close-settings-btn">&times;</button>
+        <h2><i data-lucide="settings" style="width:20px; height:20px; color:var(--accent-color);"></i> Board Configuration</h2>
+        <button class="close-btn" id="close-settings-btn"><i data-lucide="x"></i></button>
       </div>
-      <div class="modal-body" style="display: flex; gap: 2rem;">
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 32px; padding: 32px; overflow-y: auto;">
         
-        <!-- Board Layout (Left) -->
-        <div style="flex: 1;">
-          <h3>Board Layout</h3>
-          <p class="helper-text">Configure your Kanban columns</p>
-          <label>Platform Name / Heading</label>
-          <input type="text" id="settings-board-title" class="form-input">
-          
-          <label style="margin-top: 15px;">Columns List (Comma Separated)</label>
-          <input type="text" id="settings-board-columns" class="form-input" placeholder="Incoming, In Progress, On Hold, Done">
-          <p class="helper-text" style="font-size: 0.75rem;">Changes take effect immediately.</p>
-        </div>
+        <!-- Row 1: Core Configuration & Personnel -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px;">
+          <!-- Column 1: Identity -->
+          <div class="settings-section">
+            <h3>Identity & Workflow</h3>
+            <label>Workspace Name</label>
+            <input type="text" id="settings-board-title" class="form-input" placeholder="e.g. Property Management">
+            
+            <label style="margin-top:15px;">Kanban Columns</label>
+            <input type="text" id="settings-board-columns" class="form-input" placeholder="To Do, In Progress, Done">
+            
+            <div style="margin-top: 20px; padding: 15px; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.1); border-radius: 12px;">
+              <button id="delete-board-btn" class="btn-secondary" style="color: #ef4444; border-color: #ef4444; width: 100%; font-size: 0.8rem;">Delete Board</button>
+            </div>
+          </div>
 
-        <!-- Intake Form Builder (Right) -->
-        <div style="flex: 1.5;">
-          <h3>Intake Form Builder</h3>
-          <p class="helper-text">Add dynamic fields and conditional logic to your public portal.</p>
-          <div id="builder-fields-list" class="builder-list" style="max-height: 250px; overflow-y: auto;"></div>
-          
-          <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color); margin-top: 15px;">
-              <h4 style="margin-bottom: 15px; color: var(--accent-color);">Build New Field</h4>
-              <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                  <input type="text" id="new-field-label" class="form-input" placeholder="Label (e.g. Category)" style="flex: 1; min-width: 200px; margin-bottom: 5px;">
-                  <select id="new-field-type" class="form-input" style="width: 160px; margin-bottom: 5px;">
-                      <option value="text">Short Text</option>
-                      <option value="textarea">Paragraph</option>
-                      <option value="email">Email</option>
-                      <option value="file">File/Image</option>
-                      <option value="select">Dropdown</option>
-                      <option value="radio">Single Choice</option>
-                      <option value="checkbox">Multiple Choice</option>
-                  </select>
-              </div>
-              
-              <!-- Required Toggle -->
-              <div style="margin-top: 5px; margin-bottom: 5px;">
-                  <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">
-                      <input type="checkbox" id="new-field-required"> 
-                      Make this field required
-                  </label>
-              </div>
-              
-              <!-- Conditional & Advanced Options -->
-              <input type="text" id="new-field-options" class="form-input" placeholder="Options (comma separated, e.g. IT, HR, Maintenance)" style="display: none; margin-top: 10px; margin-bottom:0;">
-              
-              <div style="display: flex; gap: 10px; align-items: center; margin-top: 15px;">
-                  <label style="font-size: 0.75rem; color: var(--text-muted); white-space: nowrap;">Show field ONLY IF:</label>
-                  <select id="new-field-condition-parent" class="form-input" style="flex: 1; margin-bottom: 0; padding: 8px; font-size: 0.85rem;">
-                      <option value="">Always Show (No Condition)</option>
-                  </select>
-                  <span id="condition-equals-text" style="color: var(--text-muted); font-size: 0.75rem; display: none;">equals</span>
-                  <input type="text" id="new-field-condition-value" class="form-input" placeholder="Expected Value" style="flex: 1; margin-bottom: 0; padding: 8px; font-size: 0.85rem; display: none;">
-              </div>
-              <div style="display: flex; gap: 10px; margin-top: 15px;">
-                  <button id="add-field-btn" class="btn-primary" style="flex: 1;">Add Field Structure</button>
-                  <button id="cancel-edit-btn" class="btn-secondary" style="flex: 1; display: none; background-color: var(--bg-hover); border: 1px solid var(--border-color); color: var(--text-primary);">Cancel Edit</button>
-              </div>
+          <!-- Column 2: Team -->
+          <div class="settings-section" style="display: flex; flex-direction: column;">
+            <h3>Team & Personnel</h3>
+            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                <input type="text" id="new-staff-name" class="form-input" placeholder="Add Staff..." style="margin-bottom:0; font-size: 0.85rem;">
+                <button id="add-staff-btn" class="btn-primary" style="padding: 0 12px; width: auto;"><i data-lucide="plus"></i></button>
+            </div>
+            <div id="settings-staff-list" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; max-height: 200px;">
+                <!-- Staff items -->
+            </div>
+          </div>
+
+          <!-- Column 3: Categories -->
+          <div class="settings-section" style="display: flex; flex-direction: column;">
+            <h3>Ticket Categories</h3>
+            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                <input type="text" id="new-category-name" class="form-input" placeholder="Add Category..." style="margin-bottom:0; font-size: 0.85rem;">
+                <button id="add-category-btn" class="btn-primary" style="padding: 0 12px; width: auto;"><i data-lucide="plus"></i></button>
+            </div>
+            <div id="settings-category-list" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; max-height: 200px;">
+                <!-- Category items -->
+            </div>
           </div>
         </div>
 
+        <!-- Row 2: Intake Form Builder (Restored) -->
+        <div id="form-builder-section" class="settings-section" style="border-top: 1px solid var(--border-color); padding-top: 24px;">
+          <h3>Intake Field Schema (Helpdesk Form)</h3>
+          <p class="helper-text" style="margin-bottom: 15px;">Add custom fields to your public service request form.</p>
+          
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 32px;">
+              <div id="builder-fields-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto;">
+                  <!-- Dynamic Fields -->
+              </div>
+              
+              <div style="background: rgba(255,255,255,0.02); padding: 20px; border-radius: 12px; border: 1px dashed var(--border-color);">
+                  <h4 style="margin-bottom: 15px; font-size: 0.8rem; text-transform: uppercase; color: var(--accent-color);">Add / Edit Field</h4>
+                  <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                      <input type="text" id="new-field-label" class="form-input" placeholder="Label (e.g. Asset ID)" style="flex: 2;">
+                      <select id="new-field-type" class="form-input" style="flex: 1;">
+                          <option value="text">Text</option>
+                          <option value="textarea">Large Text</option>
+                          <option value="select">Dropdown</option>
+                          <option value="checkbox">Checkbox</option>
+                          <option value="date">Date</option>
+                      </select>
+                  </div>
+                  <input type="text" id="new-field-options" class="form-input" placeholder="Options (comma separated)" style="display: none; margin-bottom: 10px;">
+                  
+                  <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color);">
+                      <label style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 8px; display: block;">Conditional Logic</label>
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                          <select id="new-field-condition-parent" class="form-input" style="font-size: 0.85rem; flex: 1;">
+                              <option value="">Always Visible</option>
+                          </select>
+                          <span id="condition-equals-text" style="display:none; font-size: 0.75rem; color: var(--text-muted);">equals</span>
+                          <input type="text" id="new-field-condition-value" class="form-input" placeholder="Value..." style="display:none; font-size: 0.85rem; flex: 1;">
+                      </div>
+                  </div>
+
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px;">
+                      <label style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; cursor: pointer;">
+                          <input type="checkbox" id="new-field-required" style="width:16px; height:16px;"> Required
+                      </label>
+                      <div style="display: flex; gap: 8px;">
+                          <button id="add-field-btn" class="btn-primary" style="padding: 8px 16px; width: auto;">Commit Field</button>
+                          <button id="cancel-edit-btn" class="btn-secondary" style="display: none; padding: 8px 16px; width: auto;">Cancel</button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+        </div>
       </div>
-      <div class="modal-footer" style="display: flex; gap: 1rem; align-items: center;">
-        <button id="export-csv-btn" class="icon-btn" style="color: var(--accent-color); border-color: var(--accent-color); margin-right: auto;">📥 Export Data</button>
-        <button id="delete-board-btn" class="btn-danger" style="width: auto; padding: 12px 24px;">🗑️ Delete Board</button>
-        <button id="save-settings-btn" class="btn-success" style="width: auto; padding: 12px 24px;">Save Configuration</button>
+
+      <div class="modal-footer" style="padding: 20px 32px; border-top: 1px solid var(--border-color); justify-content: flex-end; background: rgba(0,0,0,0.1);">
+        <button id="save-settings-btn" class="btn-primary" style="width: auto; padding: 12px 40px;"><i data-lucide="save" style="width:16px; margin-right:8px;"></i> Save Board Configuration</button>
       </div>
     </div>
   </div>
@@ -128,7 +175,7 @@
     <div class="modal-panel analytics-panel">
       <div class="modal-header">
         <h2>Productivity Dashboard 📊</h2>
-        <button class="close-btn" id="close-analytics-btn">&times;</button>
+        <button class="close-btn" id="close-analytics-btn"><i data-lucide="x"></i></button>
       </div>
       <div class="modal-body">
         <div style="display: flex; gap: 2rem; margin-bottom: 2rem;">
@@ -157,7 +204,7 @@
     <div class="modal-panel history-panel" style="max-width: 1000px;">
       <div class="modal-header">
         <h2>History of Works 🗄️</h2>
-        <button class="close-btn" id="close-history-btn">&times;</button>
+        <button class="close-btn" id="close-history-btn"><i data-lucide="x"></i></button>
       </div>
       <div class="modal-body" style="padding: 0;">
         <p class="helper-text" style="padding: 1.5rem 1.5rem 0.5rem;">Showing tickets automatically archived after 30 days of completion.</p>
@@ -184,7 +231,7 @@
     <div class="modal-panel card-panel">
       <div class="modal-header">
         <h2 id="modal-ticket-id">EIC-TKT-XXXX</h2>
-        <div style="display: flex; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 10px;">
           <select id="modal-priority-select" class="modal-prio-select">
             <option value="Normal">🟡 Normal</option>
             <option value="Low">🟢 Low</option>
@@ -195,34 +242,52 @@
           <button class="close-btn" id="close-card-btn">&times;</button>
         </div>
       </div>
-      <div class="modal-body" style="display: flex; gap: 2rem; align-items: stretch;">
+      <div class="modal-body flex-layout" style="display: flex; gap: 2.5rem; align-items: stretch;">
         
         <div class="card-left-pane">
           <div id="modal-dynamic-fields">
              <!-- Fields injected safely here -->
           </div>
           
-          <div id="modal-attachment-zone" style="margin-top: 15px; display: none;">
+          <div style="margin-top: 25px; display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+            <div>
+              <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 5px;">Assigned To</label>
+              <select id="modal-assignee-select" class="form-input" style="margin-bottom: 0;">
+                <option value="">Unassigned</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 5px;">Due Date</label>
+              <input type="date" id="modal-due-date" class="form-input" style="margin-bottom: 0;">
+            </div>
+          </div>
+
+          <div style="margin-top: 15px;">
+            <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 5px;">Tags (Comma separated)</label>
+            <input type="text" id="modal-tags-input" class="form-input" placeholder="e.g. electrical, block-a">
+          </div>
+          
+          <div id="modal-attachment-zone" style="margin-top: 20px; display: none;">
             <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 5px;">Attached File</label>
-            <a id="modal-attachment-link" href="#" target="_blank" style="display:block; border-radius:8px; overflow:hidden; border: 1px solid var(--border-color);">
-                <img id="modal-attachment-img" src="" style="width: 100%; display: none; object-fit: cover;">
-                <div id="modal-attachment-text" style="padding: 10px; background: rgba(0,0,0,0.2); text-align:center; color: var(--accent-color);">Download File</div>
+            <a id="modal-attachment-link" href="#" target="_blank" style="display:block; border-radius:12px; overflow:hidden; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2);">
+                <img id="modal-attachment-img" src="" style="width: 100%; display: none; object-fit: cover; max-height: 200px;">
+                <div id="modal-attachment-text" style="padding: 12px; text-align:center; color: var(--accent-color); font-weight: 600; font-size: 0.85rem;">View File</div>
             </a>
           </div>
 
-          <h3 style="margin-top: 25px; border-bottom: 1px solid var(--border-color); padding-bottom: 5px;">Communication Actions</h3>
+          <h3 style="margin-top: 30px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted);">Quick Actions</h3>
           <div style="display: flex; gap: 10px; margin-top: 15px;">
-            <button id="action-email-btn" class="btn-primary" style="flex: 1;">✉ Acknowledge via Email</button>
-            <button id="action-whatsapp-btn" class="btn-success" style="flex: 1; background: #25D366; color: white;">💬 WhatsApp</button>
+            <button id="action-email-btn" class="btn-secondary" style="flex: 1;"><i data-lucide="mail"></i> Email</button>
+            <button id="action-whatsapp-btn" class="btn-secondary" style="flex: 1; border-color: #22c55e; color: #22c55e;"><i data-lucide="message-circle"></i> WhatsApp</button>
           </div>
         </div>
 
-        <div class="card-right-pane timeline-container">
-          <h3>Activity Timeline (Markdown Supported)</h3>
+        <div class="card-right-pane timeline-container" style="flex: 1.2;">
+          <h3 style="font-size: 0.9rem; margin-bottom: 15px;">Activity Timeline</h3>
           <div id="modal-timeline" class="timeline-scroll-area"></div>
           <div class="timeline-input-area">
-            <textarea id="note-input" placeholder="Type a new internal note... (Markdown **bold**, *italic* allowed)" rows="3"></textarea>
-            <button id="add-note-btn" class="btn-primary">Save Note</button>
+            <textarea id="note-input" placeholder="Type a note... (Markdown supported)" rows="3"></textarea>
+            <button id="add-note-btn" class="btn-primary">Post Note</button>
           </div>
         </div>
 
@@ -233,77 +298,137 @@
   <div id="new-ticket-modal" class="modal-overlay" style="display: none;">
     <div class="modal-panel" style="max-width: 580px; width: 95%;">
       <div class="modal-header">
-        <h2>📋 Log New Ticket</h2>
-        <button class="close-btn" id="close-new-ticket-btn">&times;</button>
+        <h2><i data-lucide="plus-circle" style="color:var(--accent-color);"></i> Log Service Request</h2>
+        <button class="close-btn" id="close-new-ticket-btn"><i data-lucide="x"></i></button>
       </div>
-      <div class="modal-body">
-        <p class="helper-text" style="margin-bottom: 20px; font-size: 0.85rem;">Manually log a ticket for walk-in tenants, phone requests, or internal tasks.</p>
-        <label>Task / Issue Title <span style="color:var(--danger-color);">*</span></label>
-        <input type="text" id="nt_title" class="form-input" placeholder="e.g. AC not working in Flat 302">
-        <div style="display:flex; gap: 15px; margin-top: 15px;">
-          <div style="flex:1;"><label>Contact Name</label>
-            <input type="text" id="nt_name" class="form-input" placeholder="e.g. Ahmad Al Rashid"></div>
-          <div style="flex:1;"><label>Contact Email</label>
-            <input type="email" id="nt_email" class="form-input" placeholder="e.g. ahmad@email.com"></div>
+      <div class="modal-body" style="padding: 24px;">
+        <div style="background: rgba(244, 63, 94, 0.05); padding: 12px 16px; border-radius: 10px; border: 1px solid rgba(244, 63, 94, 0.1); margin-bottom: 24px;">
+            <p style="font-size: 0.8rem; color: var(--accent-color); font-weight: 500;">
+                <i data-lucide="info" style="width:14px; vertical-align:middle; margin-right:6px;"></i>
+                Manual entry for walk-in tenants or phone requests.
+            </p>
         </div>
-        <div style="display:flex; gap: 15px; margin-top: 15px;">
-          <div style="flex:1;"><label>Phone / WhatsApp</label>
-            <input type="text" id="nt_phone" class="form-input" placeholder="e.g. 0501234567"></div>
-          <div style="flex:1;"><label>Unit / Location</label>
-            <input type="text" id="nt_unit" class="form-input" placeholder="e.g. Flat 302, Block B"></div>
+
+        <div style="display: flex; flex-direction: column; gap: 20px;">
+            <!-- Row 1: Title -->
+            <div class="form-group">
+                <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; display: block;">Task / Issue Title <span style="color:var(--accent-color);">*</span></label>
+                <input type="text" id="nt_title" class="form-input" placeholder="e.g. AC leaking in Sector 1 Unit 40">
+            </div>
+
+            <!-- Row 2: Identity Grid -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div class="form-group">
+                    <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; display: block;">Tenant / Company Name</label>
+                    <input type="text" id="nt_name" class="form-input" placeholder="e.g. Al Futtaim Group">
+                </div>
+                <div class="form-group">
+                    <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; display: block;">Contact Email</label>
+                    <input type="email" id="nt_email" class="form-input" placeholder="email@example.com">
+                </div>
+            </div>
+
+            <!-- Row 3: Contact & Property Type -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div class="form-group">
+                    <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; display: block;">Phone / WhatsApp</label>
+                    <input type="text" id="nt_phone" class="form-input" placeholder="+971 ...">
+                </div>
+                <div class="form-group">
+                    <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; display: block;">Property Type</label>
+                    <select id="nt_property_type" class="form-input">
+                        <option value="other">Other</option>
+                        <option value="warehouse">Warehouse</option>
+                        <option value="openyard">Open Yard</option>
+                        <option value="office">Office</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Row 4: Dynamic Location Info -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div id="nt_warehouse_group" class="form-group" style="display: none;">
+                    <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; display: block;">Warehouse Number</label>
+                    <input type="text" id="nt_warehouse_no" class="form-input" placeholder="e.g. WH-102">
+                </div>
+                <div id="nt_openyard_group" class="form-group" style="display: none;">
+                    <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; display: block;">OPY Number</label>
+                    <input type="text" id="nt_opy_no" class="form-input" placeholder="e.g. OPY-45">
+                </div>
+                <div class="form-group">
+                    <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; display: block;">Unit Number</label>
+                    <input type="text" id="nt_unit" class="form-input" placeholder="e.g. Unit 4, Block B">
+                </div>
+            </div>
+
+            <!-- Row 4: Classification Grid -->
+            <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 20px;">
+                <div class="form-group">
+                    <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; display: block;">Category</label>
+                    <select id="nt_category" class="form-input">
+                        <option value="">— Select Category —</option>
+                    </select>
+                </div>
+                <div style="display: flex; align-items: flex-end; padding-bottom: 4px;">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.85rem;">
+                        <input type="checkbox" id="nt_urgent_flag" style="width: 18px; height: 18px; accent-color: var(--accent-color);"> 
+                        <span style="color: #ef4444; font-weight: 600;">URGENT</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; display: block;">Additional Details</label>
+                <textarea id="nt_notes" class="form-input" rows="3" placeholder="Notes for the team..."></textarea>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+                <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; display: block;">Initial Ticket Stage</label>
+                <select id="nt_column" class="form-input"></select>
+                <p style="font-size: 0.7rem; color: var(--text-muted); margin-top: 6px;">Select the board column where this ticket will start.</p>
+            </div>
+
+            <button id="submit-new-ticket-btn" class="btn-primary" style="margin-top: 10px;"><i data-lucide="plus-circle"></i> Create Ticket</button>
         </div>
-        <div style="display:flex; gap: 15px; margin-top: 15px;">
-          <div style="flex:1;"><label>Category</label>
-            <select id="nt_category" class="form-input">
-              <option value="">— Select —</option>
-              <option>Maintenance</option><option>Cleaning</option>
-              <option>Security</option><option>IT / Connectivity</option>
-              <option>Billing / Finance</option><option>General Enquiry</option><option>Other</option>
-            </select></div>
-          <div style="flex:1; display: flex; align-items: flex-end; padding-bottom: 8px;">
-            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-primary); font-weight: normal;">
-              <input type="checkbox" id="nt_urgent_flag" style="width: 18px; height: 18px;"> 
-              🚨 Urgent Attention (1-2 Hours)
-            </label>
-          </div>
-        </div>
-        <div style="margin-top: 15px;"><label>Additional Notes</label>
-          <textarea id="nt_notes" class="form-input" rows="3" placeholder="Any extra details..."></textarea></div>
-        <div style="margin-top: 15px;"><label>Place in Column <span style="color:var(--danger-color);">*</span></label>
-          <select id="nt_column" class="form-input"></select></div>
-      </div>
-      <div class="modal-footer" style="justify-content: flex-end;">
-        <button id="submit-new-ticket-btn" class="btn-primary" style="width: auto; padding: 12px 28px;">🚀 Create Ticket</button>
       </div>
     </div>
   </div>
 
-  <!-- ADD INTERNAL CARD MODAL -->
-  <div id="add-card-modal" class="modal-overlay" style="display:none;">
-    <div class="modal-panel" style="max-width:460px;width:95%;">
+  <!-- ADD CARD MODAL -->
+  <div id="add-card-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-panel" style="max-width: 480px;">
       <div class="modal-header">
-        <h2 id="add-card-modal-title">➕ Add Card</h2>
-        <button class="close-btn" id="close-add-card-btn">&times;</button>
+        <h2><i data-lucide="plus-square" style="color:var(--accent-color);"></i> Add New Task</h2>
+        <button class="close-btn" id="close-add-card-btn"><i data-lucide="x"></i></button>
       </div>
-      <div class="modal-body">
-        <label>Title <span style="color:var(--danger-color);">*</span></label>
-        <input type="text" id="ac_title" class="form-input" placeholder="What needs to be done?">
-        <label style="margin-top:10px;">Notes / Details</label>
-        <textarea id="ac_notes" class="form-input" rows="3" placeholder="Any extra context..."></textarea>
-        <div style="display:flex; gap: 15px; margin-top: 15px;">
-          <div style="flex:1;"><label>Priority</label>
-            <select id="ac_priority" class="form-input">
-              <option value="Normal">🟡 Normal</option>
-              <option value="Low">🟢 Low</option>
-              <option value="High">🟠 High</option>
-              <option value="Urgent">🔴 Urgent</option>
-            </select></div>
-          <div style="flex:1;"><label>Column</label>
-            <select id="ac_column" class="form-input"></select></div>
+      <div class="modal-body" style="padding: 24px; display: flex; flex-direction: column; gap: 20px;">
+        <div class="form-group">
+            <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; display: block;">Task Title <span style="color:var(--accent-color);">*</span></label>
+            <input type="text" id="ac_title" class="form-input" placeholder="What needs to be done?">
         </div>
-      </div>
-      <div class="modal-footer" style="justify-content:flex-end;">
-        <button id="submit-add-card-btn" class="btn-primary" style="width:auto;padding:12px 28px;">✅ Add Card</button>
+
+        <div class="form-group">
+            <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; display: block;">Notes / Context</label>
+            <textarea id="ac_notes" class="form-input" rows="3" placeholder="Add extra details..."></textarea>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div class="form-group">
+                <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; display: block;">Priority</label>
+                <select id="ac_priority" class="form-input">
+                    <option value="Normal">Normal</option>
+                    <option value="Low">Low</option>
+                    <option value="High">High</option>
+                    <option value="Urgent">Urgent</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; display: block;">Status</label>
+                <select id="ac_column" class="form-input"></select>
+            </div>
+        </div>
+
+        <button id="submit-add-card-btn" class="btn-primary" style="margin-top: 10px;"><i data-lucide="plus"></i> Create Card</button>
       </div>
     </div>
   </div>
@@ -350,6 +475,6 @@
     </div>
   </div>
 
-  <script type="module" src="app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
